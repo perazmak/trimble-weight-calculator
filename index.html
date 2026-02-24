@@ -3,191 +3,244 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Steel Weight Calculator v23</title>
+    <title>Steel Weight Calculator v24</title>
     <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
     <style>
-        body { font-family: sans-serif; padding: 10px; background-color: #f4f4f4; font-size: 12px; }
-        .box { background: #fff; border: 1px solid #ddd; padding: 8px; border-radius: 4px; margin-bottom: 8px; }
-        label { display: block; font-weight: bold; margin-bottom: 2px; font-size: 10px; color: #666; }
-        input { width: 100%; padding: 5px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; margin-bottom: 5px; }
-        button { color: white; border: none; padding: 10px; border-radius: 4px; cursor: pointer; font-weight: bold; width: 100%; margin-top: 5px; }
+        body { font-family: sans-serif; padding: 12px; background-color: #f4f4f4; font-size: 13px; }
+        .version-tag { font-size: 10px; color: #888; text-align: right; margin-bottom: 5px; }
+        .section-box { background: #fff; border: 1px solid #ddd; padding: 10px; border-radius: 4px; margin-bottom: 10px; }
+        .section-title { font-weight: bold; margin-bottom: 8px; color: #005f9e; font-size: 11px; text-transform: uppercase; border-bottom: 1px solid #eee; padding-bottom: 3px; }
+        label { display: block; font-weight: 600; margin-bottom: 2px; font-size: 11px; color: #555; }
+        input { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; margin-bottom: 10px; font-size: 12px; }
+        
+        button { color: white; border: none; padding: 12px; border-radius: 4px; cursor: pointer; font-weight: bold; width: 100%; }
         #calcBtn { background-color: #005f9e; }
-        .btn-sel { background-color: #6c757d; width: 48%; font-size: 10px; display: inline-block; }
         #exportBtn { background-color: #28a745; display: none; margin-top: 10px; }
-        #status { margin: 8px 0; font-size: 11px; font-style: italic; color: #444; }
-        .table-container { max-height: 200px; overflow-y: auto; border: 1px solid #ccc; background: #fff; display: none; margin-top: 8px; }
-        table { width: 100%; border-collapse: collapse; font-size: 10px; }
-        th, td { border: 1px solid #eee; padding: 5px; text-align: left; }
-        th { background-color: #005f9e; color: white; position: sticky; top: 0; cursor: pointer; }
-        .err-row { color: #d00; }
-        #totalBox { background: #333; color: #0cf; padding: 8px; border-radius: 4px; text-align: center; display: none; margin-top: 8px; font-weight: bold; }
+        
+        #status { margin-top: 10px; padding: 8px; background: #fff; border-radius: 4px; border: 1px solid #ddd; font-size: 12px; min-height: 20px; }
+        #totalBox { background-color: #333; color: white; padding: 12px; border-radius: 4px; margin-top: 10px; display: none; text-align: center; }
+        #totalBox span { font-size: 20px; display: block; font-weight: bold; color: #00ccff; }
+
+        .table-container { max-height: 300px; overflow-y: auto; display: none; margin-top: 15px; border: 1px solid #ccc; background: #fff; }
+        table { width: 100%; border-collapse: collapse; font-size: 11px; }
+        th, td { border: 1px solid #eee; padding: 8px; text-align: left; }
+        th { background-color: #005f9e; color: white; position: sticky; top: 0; cursor: pointer; user-select: none; }
+        th:hover { background-color: #004b7c; }
+        tr:hover { background-color: #f9f9f9; }
+        .row-err { color: #d8000c; font-weight: bold; }
     </style>
 </head>
 <body>
-    <div style="text-align:right; font-size:9px; color:#999;">v23.0 - Atomic Selection</div>
+    <div class="version-tag">App Version: 24.0 (Stable)</div>
+    <h3>Steel Weight Calc</h3>
     
-    <label>1. LOAD TEKLA LIS</label>
+    <label>1. Load Tekla .lis file</label>
     <input type="file" id="dbFile" accept=".lis,.txt">
 
-    <div class="box">
-        <label>IFC PROPERTY PATHS</label>
-        <input type="text" id="psP" value="Pset_QuantityTakeOff">
-        <input type="text" id="prP" value="Reference">
-        <input type="text" id="psL" value="Dimensions">
-        <input type="text" id="prL" value="Length">
+    <div class="section-box">
+        <div class="section-title">PROFILE PROPERTY LOCATION</div>
+        <label>Tab Name (Set)</label>
+        <input type="text" id="psetProfile" value="Pset_QuantityTakeOff">
+        <label>Property Name</label>
+        <input type="text" id="propProfile" value="Reference">
     </div>
 
-    <button id="calcBtn">CALCULATE WEIGHTS</button>
-    
-    <div style="display:flex; gap:4px;">
-        <button id="selErrBtn" class="btn-sel">SELECT ERRORS</button>
-        <button id="selPltBtn" class="btn-sel">SELECT PLATES</button>
+    <div class="section-box">
+        <div class="section-title">LENGTH PROPERTY LOCATION</div>
+        <label>Tab Name (Set)</label>
+        <input type="text" id="psetLength" value="Dimensions">
+        <label>Property Name (mm)</label>
+        <input type="text" id="propLength" value="Length">
     </div>
 
-    <div id="status">Ready.</div>
+    <button id="calcBtn" disabled>Calculate Weights v24</button>
+    <div id="status">Please load a .lis file to begin.</div>
 
-    <div id="totalBox">TOTAL: <span id="totalVal">0.0000</span> tn</div>
+    <div id="totalBox">
+        TOTAL SELECTION WEIGHT
+        <span id="totalVal">0.0000 tn</span>
+    </div>
 
-    <div class="table-container" id="uiTable">
-        <table id="resTable">
+    <div class="table-container" id="resultsContainer">
+        <table id="resultsTable">
             <thead>
                 <tr>
-                    <th onclick="resort(0)">GUID ↕</th>
-                    <th onclick="resort(1)">Profile ↕</th>
-                    <th onclick="resort(2)">mm ↕</th>
-                    <th onclick="resort(3)">Tn ↕</th>
+                    <th onclick="sortTable('guid')">GUID ↕</th>
+                    <th onclick="sortTable('profile')">Profile ↕</th>
+                    <th onclick="sortTable('length')">mm ↕</th>
+                    <th onclick="sortTable('tn')">Tn ↕</th>
+                    <th onclick="sortTable('statusNote')">Status ↕</th>
                 </tr>
             </thead>
             <tbody></tbody>
         </table>
+        <button id="exportBtn">Export Data to CSV</button>
     </div>
-    
-    <button id="exportBtn">EXPORT CSV</button>
 
     <script>
         let tcAPI;
-        let weightDB = {};
-        let results = [];
-        let errorIds = []; // Red
-        let plateIds = []; // Yellow
+        let weightDatabase = {};
+        let lastFullData = [];
+        let sortDirection = {};
 
-        TrimbleConnectWorkspace.connect(window.parent).then(api => { tcAPI = api; });
-
-        document.getElementById('dbFile').addEventListener('change', e => {
-            const reader = new FileReader();
-            reader.onload = event => {
-                const chunks = event.target.result.split('PROFILE_NAME');
-                for (let i = 1; i < chunks.length; i++) {
-                    const n = chunks[i].match(/^\s*=\s*"([^"]+)";/);
-                    const w = chunks[i].match(/"WEIGHT_PER_UNIT_LENGTH"\s+([0-9\.E\+\-]+)/);
-                    if (n && w) weightDB[n[1].trim().toUpperCase()] = parseFloat(w[1]);
-                }
-                document.getElementById('status').innerText = "LIS Data Loaded.";
-            };
-            reader.readAsText(e.target.files[0]);
+        // 1. Initialize API
+        TrimbleConnectWorkspace.connect(window.parent).then(api => {
+            tcAPI = api;
+            if (Object.keys(weightDatabase).length > 0) document.getElementById('calcBtn').disabled = false;
         });
 
-        document.getElementById('calcBtn').onclick = async () => {
-            if (!tcAPI) return;
-            const tbody = document.querySelector("#resTable tbody");
-            tbody.innerHTML = "";
-            results = []; errorIds = []; plateIds = [];
-            let total = 0;
+        // 2. Load LIS File
+        document.getElementById('dbFile').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                const chunks = event.target.result.split('PROFILE_NAME');
+                for (let i = 1; i < chunks.length; i++) {
+                    const nameMatch = chunks[i].match(/^\s*=\s*"([^"]+)";/);
+                    const weightMatch = chunks[i].match(/"WEIGHT_PER_UNIT_LENGTH"\s+([0-9\.E\+\-]+)/);
+                    if (nameMatch && weightMatch) {
+                        weightDatabase[nameMatch[1].trim().toUpperCase()] = parseFloat(weightMatch[1]);
+                    }
+                }
+                document.getElementById('status').innerText = "Database loaded. Ready.";
+                if (tcAPI) document.getElementById('calcBtn').disabled = false;
+            };
+            reader.readAsText(file);
+        });
+
+        // Plate Logic Helper
+        function getPlateWeight(profileStr, lengthMm) {
+            const plateRegex = /(?:FLT|PLT|PL|FL)\s*(\d+(?:\.\d+)?)[x\*](\d+(?:\.\d+)?)/i;
+            const match = profileStr.match(plateRegex);
+            if (match) {
+                const thickness = parseFloat(match[1]);
+                const width = parseFloat(match[2]);
+                // Steel density 7850kg/m3. Formula: (T*W*L*7850) / 10^12
+                return thickness * width * lengthMm * 0.00000000785;
+            }
+            return null;
+        }
+
+        // 3. Main Calculation
+        document.getElementById('calcBtn').onclick = async function() {
+            const statusEl = document.getElementById('status');
+            const totalValEl = document.getElementById('totalVal');
+            const totalBox = document.getElementById('totalBox');
+            
+            // UI Feedback for long processes
+            totalBox.style.display = "block";
+            totalValEl.innerText = "CALCULATING...";
+            statusEl.innerText = "Accessing model data...";
+
+            const psProf = document.getElementById('psetProfile').value.trim();
+            const prProf = document.getElementById('propProfile').value.trim();
+            const psLen = document.getElementById('psetLength').value.trim();
+            const prLen = document.getElementById('propLength').value.trim();
+
+            lastFullData = [];
+            let totalTonnage = 0;
 
             try {
-                const sel = await tcAPI.viewer.getSelection();
-                if (!sel || sel.length === 0) { alert("Select objects first."); return; }
+                const selection = await tcAPI.viewer.getSelection();
+                if (!selection || selection.length === 0) {
+                    alert("Select items in the 3D model first.");
+                    totalValEl.innerText = "0.0000 tn";
+                    return;
+                }
 
-                for (const s of sel) {
-                    const props = await tcAPI.viewer.getObjectProperties(s.modelId, s.objectRuntimeIds || [s.objectId]);
-                    for (const o of props) {
-                        const get = (pset, prop) => {
-                            let tab = Array.isArray(o.properties) ? o.properties.find(x => x.name === pset) : o.properties[pset];
-                            return Array.isArray(tab?.properties || tab) ? (tab.properties || tab).find(x => x.name === prop)?.value : (tab?.properties || tab)?.[prop];
+                for (const sel of selection) {
+                    const props = await tcAPI.viewer.getObjectProperties(sel.modelId, sel.objectRuntimeIds || [sel.objectId]);
+                    
+                    for (const obj of props) {
+                        const getVal = (pset, prop) => {
+                            let s = Array.isArray(obj.properties) ? obj.properties.find(p => p.name === pset) : obj.properties[pset];
+                            return Array.isArray(s?.properties || s) ? (s.properties || s).find(p => p.name === prop)?.value : (s?.properties || s)?.[prop];
                         };
 
-                        let prof = get(document.getElementById('psP').value, document.getElementById('prP').value);
-                        let lenR = get(document.getElementById('psL').value, document.getElementById('prL').value);
-                        let L = Math.round(parseFloat(lenR) || 0), tn = 0, note = "OK";
+                        let profile = getVal(psProf, prProf);
+                        let lengthRaw = getVal(psLen, prLen);
+                        let note = "OK", tn = 0, lengthInt = Math.round(parseFloat(lengthRaw) || 0);
 
-                        if (!prof || !lenR) { 
-                            note = "ERR"; 
-                            errorIds.push(o.id); 
+                        if (!lengthRaw || isNaN(parseFloat(lengthRaw))) {
+                            note = "ERR: Missing Length";
+                        } else if (!profile) {
+                            note = "ERR: Missing Profile";
                         } else {
-                            const kgM = weightDB[prof.toString().toUpperCase()];
-                            if (kgM) { 
-                                tn = (L/1000) * kgM / 1000; 
+                            const profileKey = profile.toString().trim().toUpperCase();
+                            const kgPerM = weightDatabase[profileKey];
+                            
+                            if (kgPerM) {
+                                tn = (lengthInt / 1000) * kgPerM / 1000;
                             } else {
-                                const m = prof.toString().match(/(?:FLT|PLT|PL|FL)\s*(\d+(?:\.\d+)?)[x\*](\d+(?:\.\d+)?)/i);
-                                if (m) {
-                                    tn = parseFloat(m[1]) * parseFloat(m[2]) * L * 0.00000000785;
-                                    note = "PLATE";
-                                    plateIds.push(o.id);
-                                } else { 
-                                    note = "ERR"; 
-                                    errorIds.push(o.id); 
+                                const pWt = getPlateWeight(profileKey, lengthInt);
+                                if (pWt) {
+                                    tn = pWt;
+                                    note = "Plate Calc (Not in LIS)";
+                                } else {
+                                    note = "ERR: Not in LIS";
                                 }
                             }
                         }
-                        total += tn;
-                        results.push({ guid: o.guid||"N/A", prof: prof||"ERR", L, tn: tn.toFixed(4), note, id: o.id });
 
-                        const tr = document.createElement("tr");
-                        if (note === "ERR") tr.className = "err-row";
-                        tr.innerHTML = `<td>${o.guid||"N/A"}</td><td>${prof||"ERR"}</td><td>${L}</td><td>${tn.toFixed(4)}</td>`;
-                        tbody.appendChild(tr);
+                        totalTonnage += tn;
+                        lastFullData.push({
+                            guid: obj.guid || "N/A",
+                            profile: profile || "N/A",
+                            length: lengthInt,
+                            tn: tn.toFixed(4),
+                            statusNote: note
+                        });
                     }
                 }
-                document.getElementById('uiTable').style.display = "block";
-                document.getElementById('exportBtn').style.display = "block";
-                document.getElementById('totalBox').style.display = "block";
-                document.getElementById('totalVal').innerText = total.toFixed(4);
-                document.getElementById('status').innerText = `Computed ${results.length} parts.`;
-            } catch (err) { alert(err.message); }
-        };
 
-        // Selection Fix: Try Atomic ID Array
-        async function applySelection(idArray) {
-            if (!idArray.length) return;
-            // Clean selection first
-            await tcAPI.viewer.setSelection([]);
-            // Attempt Atomic selection (passing just IDs)
-            try {
-                await tcAPI.viewer.setSelection(idArray);
-            } catch (e) {
-                // If Atomic fails, fallback to standard mapped selection
-                const selection = await tcAPI.viewer.getSelection();
-                const mId = selection[0].modelId;
-                await tcAPI.viewer.setSelection([{ modelId: mId, objectIds: idArray }]);
+                renderTable();
+                totalValEl.innerText = totalTonnage.toFixed(4) + " tn";
+                statusEl.innerText = `Calculated ${lastFullData.length} objects.`;
+            } catch (err) {
+                alert("Error: " + err.message);
+                totalValEl.innerText = "Error";
             }
-        }
-
-        document.getElementById('selErrBtn').onclick = () => applySelection(errorIds);
-        document.getElementById('selPltBtn').onclick = () => applySelection(plateIds);
-
-        document.getElementById('exportBtn').onclick = () => {
-            let csv = "data:text/csv;charset=utf-8,GUID,Profile,mm,Tn,Status\n";
-            results.forEach(r => csv += `${r.guid},${r.prof},${r.L},${r.tn},${r.note}\n`);
-            const link = document.createElement("a");
-            link.setAttribute("href", encodeURI(csv));
-            link.setAttribute("download", "weights_v23.csv");
-            link.click();
         };
 
-        function resort(n) {
-            results.sort((a,b) => {
-                let v1 = Object.values(a)[n], v2 = Object.values(b)[n];
-                return isNaN(v1) ? v1.toString().localeCompare(v2) : v1 - v2;
-            });
-            const tbody = document.querySelector("#resTable tbody");
+        function renderTable() {
+            const tbody = document.querySelector("#resultsTable tbody");
             tbody.innerHTML = "";
-            results.forEach(r => {
+            lastFullData.forEach(row => {
                 const tr = document.createElement("tr");
-                if (r.note === "ERR") tr.className = "err-row";
-                tr.innerHTML = `<td>${r.guid}</td><td>${r.prof}</td><td>${r.L}</td><td>${r.tn}</td>`;
+                if (row.statusNote.startsWith("ERR")) tr.className = "row-err";
+                tr.innerHTML = `<td>${row.guid}</td><td>${row.profile}</td><td>${row.length}</td><td>${row.tn}</td><td>${row.statusNote}</td>`;
                 tbody.appendChild(tr);
             });
+            document.getElementById('resultsContainer').style.display = "block";
+            document.getElementById('exportBtn').style.display = "block";
         }
+
+        function sortTable(column) {
+            sortDirection[column] = !sortDirection[column];
+            lastFullData.sort((a, b) => {
+                let valA = a[column];
+                let valB = b[column];
+                if (!isNaN(valA) && !isNaN(valB)) {
+                    valA = parseFloat(valA);
+                    valB = parseFloat(valB);
+                }
+                if (valA < valB) return sortDirection[column] ? -1 : 1;
+                if (valA > valB) return sortDirection[column] ? 1 : -1;
+                return 0;
+            });
+            renderTable();
+        }
+
+        document.getElementById('exportBtn').onclick = function() {
+            let csv = "data:text/csv;charset=utf-8,GUID,Profile,Length_mm,Weight_tn,Status\n";
+            lastFullData.forEach(r => {
+                csv += `${r.guid},${r.profile},${r.length},${r.tn},${r.statusNote.replace(/,/g, "")}\n`;
+            });
+            const link = document.createElement("a");
+            link.setAttribute("href", encodeURI(csv));
+            link.setAttribute("download", "steel_audit_report.csv");
+            link.click();
+        };
     </script>
 </body>
 </html>
