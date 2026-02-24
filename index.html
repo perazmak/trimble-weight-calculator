@@ -166,12 +166,15 @@
 
         // Main Calculation Logic
         async function calculateWeights() {
-            if (!tcAPI) {
-                alert("Trimble Connect API is not connected.");
+            const statusEl = document.getElementById('status');
+            
+            // Check if running directly in browser instead of Trimble Connect
+            if (!tcAPI || !tcAPI.viewer) {
+                statusEl.className = "error-text";
+                statusEl.innerText = "Error: Cannot find the 3D Viewer. You are visiting this page as a standard website. You must load this URL inside the Trimble Connect Extension panel to access the 3D model.";
                 return;
             }
 
-            const statusEl = document.getElementById('status');
             statusEl.className = "";
             statusEl.innerText = "Processing selected parts...";
 
