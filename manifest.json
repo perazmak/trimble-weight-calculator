@@ -1,0 +1,6 @@
+{
+  "title": "Steel Weight Calculator",
+  "description": "Calculates the weight of selected steel parts using your Tekla database.",
+  "url": "https://perazmak.github.io/trimble-weight-calculator/index.html",
+  "enabled": true
+}
