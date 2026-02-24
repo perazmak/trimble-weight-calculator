@@ -1,7 +1,7 @@
 {
   "title": "Steel Weight Calculator",
   "icon": "https://img.icons8.com/color/48/000000/weight-kg.png",
-  "description": "v23: Atomic Selection Mode to fix the 'Select All' bug. Whole number mm.",
-  "url": "https://perazmak.github.io/trimble-weight-calculator/index.html?v=23",
+  "description": "Stable Data Mode: 4-decimal tonnes, plate logic, and sortable audit table.",
+  "url": "https://perazmak.github.io/trimble-weight-calculator/index.html?v=24",
   "enabled": true
 }
