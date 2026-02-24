@@ -1,7 +1,7 @@
 {
   "title": "Steel Weight Calculator",
   "icon": "https://img.icons8.com/color/48/000000/weight-kg.png",
-  "description": "Weights in tonnes (4 decimals). UI total display only. Individual row CSV export.",
-  "url": "https://perazmak.github.io/trimble-weight-calculator/index.html?v=14",
+  "description": "Weights in tonnes. Fixed selection filtering and coloring API compatibility.",
+  "url": "https://perazmak.github.io/trimble-weight-calculator/index.html?v=15",
   "enabled": true
 }
