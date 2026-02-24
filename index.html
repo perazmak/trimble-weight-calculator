@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Steel Weight Calculator v24</title>
+    <title>Steel Weight Calculator v27</title>
     <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
     <style>
         body { font-family: sans-serif; padding: 12px; background-color: #f4f4f4; font-size: 13px; }
@@ -28,14 +28,23 @@
         th:hover { background-color: #004b7c; }
         tr:hover { background-color: #f9f9f9; }
         .row-err { color: #d8000c; font-weight: bold; }
+        .row-alias { color: #f39c12; font-style: italic; }
     </style>
 </head>
 <body>
-    <div class="version-tag">App Version: 24.0 (Stable)</div>
+    <div class="version-tag">App Version: 27.0 (Type Defaults Updated)</div>
     <h3>Steel Weight Calc</h3>
     
     <label>1. Load Tekla .lis file</label>
     <input type="file" id="dbFile" accept=".lis,.txt">
+
+    <div class="section-box">
+        <div class="section-title">TYPE PROPERTY LOCATION</div>
+        <label>Tab Name (Set)</label>
+        <input type="text" id="psetType" value="ReferenceObject">
+        <label>Property Name</label>
+        <input type="text" id="propType" value="Common Type">
+    </div>
 
     <div class="section-box">
         <div class="section-title">PROFILE PROPERTY LOCATION</div>
@@ -53,7 +62,7 @@
         <input type="text" id="propLength" value="Length">
     </div>
 
-    <button id="calcBtn" disabled>Calculate Weights v24</button>
+    <button id="calcBtn" disabled>Calculate Weights v27</button>
     <div id="status">Please load a .lis file to begin.</div>
 
     <div id="totalBox">
@@ -66,6 +75,7 @@
             <thead>
                 <tr>
                     <th onclick="sortTable('guid')">GUID ↕</th>
+                    <th onclick="sortTable('type')">Type ↕</th>
                     <th onclick="sortTable('profile')">Profile ↕</th>
                     <th onclick="sortTable('length')">mm ↕</th>
                     <th onclick="sortTable('tn')">Tn ↕</th>
@@ -115,7 +125,6 @@
             if (match) {
                 const thickness = parseFloat(match[1]);
                 const width = parseFloat(match[2]);
-                // Steel density 7850kg/m3. Formula: (T*W*L*7850) / 10^12
                 return thickness * width * lengthMm * 0.00000000785;
             }
             return null;
@@ -127,11 +136,12 @@
             const totalValEl = document.getElementById('totalVal');
             const totalBox = document.getElementById('totalBox');
             
-            // UI Feedback for long processes
             totalBox.style.display = "block";
             totalValEl.innerText = "CALCULATING...";
             statusEl.innerText = "Accessing model data...";
 
+            const psType = document.getElementById('psetType').value.trim();
+            const prType = document.getElementById('propType').value.trim();
             const psProf = document.getElementById('psetProfile').value.trim();
             const prProf = document.getElementById('propProfile').value.trim();
             const psLen = document.getElementById('psetLength').value.trim();
@@ -157,6 +167,7 @@
                             return Array.isArray(s?.properties || s) ? (s.properties || s).find(p => p.name === prop)?.value : (s?.properties || s)?.[prop];
                         };
 
+                        let elemType = getVal(psType, prType);
                         let profile = getVal(psProf, prProf);
                         let lengthRaw = getVal(psLen, prLen);
                         let note = "OK", tn = 0, lengthInt = Math.round(parseFloat(lengthRaw) || 0);
@@ -167,7 +178,24 @@
                             note = "ERR: Missing Profile";
                         } else {
                             const profileKey = profile.toString().trim().toUpperCase();
-                            const kgPerM = weightDatabase[profileKey];
+                            let kgPerM = weightDatabase[profileKey];
+                            
+                            // UB to UKB / UC to UKC Fallback Logic
+                            if (!kgPerM) {
+                                if (profileKey.startsWith("UB")) {
+                                    const altKey = profileKey.replace(/^UB/, "UKB");
+                                    if (weightDatabase[altKey]) {
+                                        kgPerM = weightDatabase[altKey];
+                                        note = "Alias used (UKB)";
+                                    }
+                                } else if (profileKey.startsWith("UC")) {
+                                    const altKey = profileKey.replace(/^UC/, "UKC");
+                                    if (weightDatabase[altKey]) {
+                                        kgPerM = weightDatabase[altKey];
+                                        note = "Alias used (UKC)";
+                                    }
+                                }
+                            }
                             
                             if (kgPerM) {
                                 tn = (lengthInt / 1000) * kgPerM / 1000;
@@ -185,6 +213,7 @@
                         totalTonnage += tn;
                         lastFullData.push({
                             guid: obj.guid || "N/A",
+                            type: elemType || "N/A",
                             profile: profile || "N/A",
                             length: lengthInt,
                             tn: tn.toFixed(4),
@@ -208,7 +237,9 @@
             lastFullData.forEach(row => {
                 const tr = document.createElement("tr");
                 if (row.statusNote.startsWith("ERR")) tr.className = "row-err";
-                tr.innerHTML = `<td>${row.guid}</td><td>${row.profile}</td><td>${row.length}</td><td>${row.tn}</td><td>${row.statusNote}</td>`;
+                else if (row.statusNote.startsWith("Alias")) tr.className = "row-alias";
+                
+                tr.innerHTML = `<td>${row.guid}</td><td>${row.type}</td><td>${row.profile}</td><td>${row.length}</td><td>${row.tn}</td><td>${row.statusNote}</td>`;
                 tbody.appendChild(tr);
             });
             document.getElementById('resultsContainer').style.display = "block";
@@ -232,9 +263,9 @@
         }
 
         document.getElementById('exportBtn').onclick = function() {
-            let csv = "data:text/csv;charset=utf-8,GUID,Profile,Length_mm,Weight_tn,Status\n";
+            let csv = "data:text/csv;charset=utf-8,GUID,Type,Profile,Length_mm,Weight_tn,Status\n";
             lastFullData.forEach(r => {
-                csv += `${r.guid},${r.profile},${r.length},${r.tn},${r.statusNote.replace(/,/g, "")}\n`;
+                csv += `${r.guid},${r.type},${r.profile},${r.length},${r.tn},${r.statusNote.replace(/,/g, "")}\n`;
             });
             const link = document.createElement("a");
             link.setAttribute("href", encodeURI(csv));
