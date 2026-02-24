@@ -120,7 +120,7 @@
         <input type="text" id="lengthProp" value="LENGTH" title="The exact name of the length property">
     </div>
 
-    <button id="calcBtn" disabled>Calculate Weights</button>
+    <button id="calcBtn" disabled>Calculate Weights v3</button>
     <div id="status">Waiting for API connection...</div>
     
     <button id="exportBtn">Export to CSV</button>
@@ -241,6 +241,7 @@
 
             try {
                 const selection = await tcAPI.viewer.getSelection();
+                console.log("Raw selection from API:", selection);
                 
                 if (!selection || selection.length === 0) {
                     statusEl.className = "error-text";
@@ -248,11 +249,29 @@
                     return;
                 }
 
-                const objectsProps = await tcAPI.viewer.getObjectProperties(selection);
+                let objectsProps = [];
+                
+                // Properly call getObjectProperties using modelId and objectRuntimeIds per Trimble's spec
+                for (const sel of selection) {
+                    const objIds = sel.objectRuntimeIds || sel.objectIds || [sel.objectId].filter(Boolean); 
+                    if (objIds && objIds.length > 0) {
+                        try {
+                            const props = await tcAPI.viewer.getObjectProperties(sel.modelId, objIds);
+                            console.log("Fetched props for model:", sel.modelId, props);
+                            if (props) {
+                                objectsProps = objectsProps.concat(props);
+                            }
+                        } catch (propErr) {
+                            console.error("Failed to fetch props for model", sel.modelId, propErr);
+                        }
+                    }
+                }
+
+                console.log("All combined properties:", objectsProps);
 
                 if (!objectsProps || objectsProps.length === 0) {
                     statusEl.className = "error-text";
-                    statusEl.innerText = "Could not retrieve any properties from the selected parts.";
+                    statusEl.innerText = "Could not retrieve any properties from the selected parts. Check your F12 console.";
                     return;
                 }
 
@@ -264,15 +283,34 @@
                 let profileNotInDB = 0;
 
                 for (const obj of objectsProps) {
-                    // Check 1: Does the Property Set tab exist?
-                    if (!obj.properties || !obj.properties[psetName]) {
+                    // Adapt to Trimble's property array vs object structural differences
+                    let targetPset = null;
+                    if (Array.isArray(obj.properties)) {
+                        targetPset = obj.properties.find(p => p.name === psetName);
+                    } else if (obj.properties && obj.properties[psetName]) {
+                        targetPset = obj.properties[psetName];
+                    }
+
+                    if (!targetPset) {
                         missingPset++;
                         continue;
                     }
 
-                    const partProps = obj.properties[psetName];
-                    let profileStr = partProps[profileName];
-                    let lengthRaw = partProps[lengthName];
+                    // Extract actual property values robustly
+                    let profileStr = null;
+                    let lengthRaw = null;
+                    
+                    const actualProps = targetPset.properties || targetPset; 
+                    
+                    if (Array.isArray(actualProps)) {
+                        const profItem = actualProps.find(p => p.name === profileName);
+                        const lenItem = actualProps.find(p => p.name === lengthName);
+                        profileStr = profItem ? profItem.value : null;
+                        lengthRaw = lenItem ? lenItem.value : null;
+                    } else {
+                        profileStr = actualProps[profileName];
+                        lengthRaw = actualProps[lengthName];
+                    }
 
                     // Check 2: Does the Profile parameter exist?
                     if (profileStr === undefined || profileStr === null || profileStr === "") {
@@ -301,7 +339,7 @@
                             const totalWeight = lengthInMeters * weightPerMeter;
 
                             calculatedResults.push({
-                                id: obj.objectId,
+                                id: obj.objectId || obj.id,
                                 profile: profileStr,
                                 length: lengthInMeters.toFixed(3),
                                 weight: totalWeight.toFixed(2)
