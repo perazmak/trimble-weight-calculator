@@ -1,7 +1,7 @@
 {
   "title": "Steel Weight Calculator",
   "icon": "https://img.icons8.com/color/48/000000/weight-kg.png",
-  "description": "Stable Data Mode: 4-decimal tonnes, plate logic, and sortable audit table.",
-  "url": "https://perazmak.github.io/trimble-weight-calculator/index.html?v=24",
+  "description": "Stable Data Mode: Includes element Type extraction (ReferenceObject/Common Type), UB/UC fallbacks, and plate logic.",
+  "url": "https://perazmak.github.io/trimble-weight-calculator/index.html?v=27",
   "enabled": true
 }
