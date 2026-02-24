@@ -15,13 +15,29 @@
             background-color: #f9f9f9;
         }
         .form-group { 
-            margin-bottom: 15px; 
+            margin-bottom: 12px; 
         }
         label { 
             display: block; 
             font-weight: 600; 
-            margin-bottom: 5px; 
-            font-size: 13px; 
+            margin-bottom: 4px; 
+            font-size: 12px; 
+            color: #555;
+        }
+        .section-box {
+            background: #fff;
+            border: 1px solid #ddd;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+        }
+        .section-title {
+            font-size: 13px;
+            font-weight: bold;
+            margin-bottom: 8px;
+            color: #005f9e;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 4px;
         }
         input[type="text"], input[type="file"] { 
             width: 100%; 
@@ -39,7 +55,7 @@
             cursor: pointer; 
             width: 100%; 
             font-weight: bold; 
-            margin-top: 10px;
+            margin-top: 5px;
         }
         button:disabled {
             background-color: #ccc;
@@ -52,9 +68,6 @@
             background-color: #28a745;
             display: none;
             margin-bottom: 15px;
-        }
-        #exportBtn:hover {
-            background-color: #218838;
         }
         #status { 
             margin-top: 15px; 
@@ -88,7 +101,7 @@
             color: white;
         }
         .table-container {
-            max-height: 300px;
+            max-height: 250px;
             overflow-y: auto;
             margin-top: 10px;
             border: 1px solid #ccc;
@@ -102,25 +115,34 @@
     
     <div class="form-group">
         <label for="dbFile">1. Load Tekla Catalog (.lis)</label>
-        <input type="file" id="dbFile" accept=".lis,.txt" title="Upload your profiles.lis file">
+        <input type="file" id="dbFile" accept=".lis,.txt">
     </div>
 
-    <div class="form-group">
-        <label for="propertySet">2. Property Set Name</label>
-        <input type="text" id="propertySet" value="Tekla" title="The group where the properties live in Trimble Connect">
+    <div class="section-box">
+        <div class="section-title">PROFILE PROPERTY LOCATION</div>
+        <div class="form-group">
+            <label for="psetProfile">Property Set Name</label>
+            <input type="text" id="psetProfile" value="Object">
+        </div>
+        <div class="form-group">
+            <label for="propProfile">Property Name</label>
+            <input type="text" id="propProfile" value="Name">
+        </div>
     </div>
 
-    <div class="form-group">
-        <label for="profileProp">3. Section Size Property</label>
-        <input type="text" id="profileProp" value="PROFILE" title="The exact name of the section property">
+    <div class="section-box">
+        <div class="section-title">LENGTH PROPERTY LOCATION</div>
+        <div class="form-group">
+            <label for="psetLength">Property Set Name</label>
+            <input type="text" id="psetLength" value="Object">
+        </div>
+        <div class="form-group">
+            <label for="propLength">Property Name</label>
+            <input type="text" id="propLength" value="Length">
+        </div>
     </div>
 
-    <div class="form-group">
-        <label for="lengthProp">4. Length Property</label>
-        <input type="text" id="lengthProp" value="LENGTH" title="The exact name of the length property">
-    </div>
-
-    <button id="calcBtn" disabled>Calculate Weights v3</button>
+    <button id="calcBtn" disabled>Calculate Weights v4</button>
     <div id="status">Waiting for API connection...</div>
     
     <button id="exportBtn">Export to CSV</button>
@@ -134,8 +156,7 @@
                     <th>Weight (kg)</th>
                 </tr>
             </thead>
-            <tbody>
-                </tbody>
+            <tbody></tbody>
         </table>
     </div>
 
@@ -144,33 +165,24 @@
         let weightDatabase = {};
         let calculatedResults = [];
 
-        // Parse the .lis file dynamically when the user selects it
         document.getElementById('dbFile').addEventListener('change', function(event) {
             const file = event.target.files[0];
             if (!file) return;
-
             const statusEl = document.getElementById('status');
             statusEl.className = "";
-            statusEl.innerText = "Parsing profile database... Please wait.";
-
+            statusEl.innerText = "Parsing profile database...";
             const reader = new FileReader();
             reader.onload = function(e) {
                 try {
                     const content = e.target.result;
                     let count = 0;
-                    weightDatabase = {}; // Reset database memory
-
-                    // Efficiently parse the large .lis file by splitting into profile chunks
+                    weightDatabase = {};
                     const chunks = content.split('PROFILE_NAME');
                     for (let i = 1; i < chunks.length; i++) {
                         const chunk = chunks[i];
-                        
-                        // Extract the profile name
                         const nameMatch = chunk.match(/^\s*=\s*"([^"]+)";/);
                         if (nameMatch) {
                             const profileName = nameMatch[1].trim().toUpperCase();
-                            
-                            // Extract the weight
                             const weightMatch = chunk.match(/"WEIGHT_PER_UNIT_LENGTH"\s+([0-9\.E\+\-]+)/);
                             if (weightMatch) {
                                 const weight = parseFloat(weightMatch[1]);
@@ -181,228 +193,128 @@
                             }
                         }
                     }
-
-                    if (count > 0) {
-                        statusEl.innerText = `Database loaded: ${count} profiles found. Ready to calculate.`;
-                        if (tcAPI) {
-                            document.getElementById('calcBtn').disabled = false;
-                        }
-                    } else {
-                        statusEl.className = "error-text";
-                        statusEl.innerText = "No weights found. Make sure this is a valid Tekla profiles.lis file.";
-                    }
-                } catch (parseError) {
+                    statusEl.innerText = count > 0 ? `Database loaded: ${count} profiles.` : "No weights found in file.";
+                    if (count > 0 && tcAPI) document.getElementById('calcBtn').disabled = false;
+                } catch (err) {
                     statusEl.className = "error-text";
-                    statusEl.innerText = "File Parsing Error: " + parseError.message;
+                    statusEl.innerText = "File Parsing Error: " + err.message;
                 }
             };
             reader.readAsText(file);
         });
 
-        // Initialize Trimble Connect API
         async function initAPI() {
             try {
                 tcAPI = await TrimbleConnectWorkspace.connect(window.parent, (event, args) => {});
-                document.getElementById('status').innerText = "Connected! Please load your .lis database file above.";
+                document.getElementById('status').innerText = "Connected! Load .lis file to start.";
             } catch (error) {
-                console.error("API Initialization Failed", error);
-                const statusEl = document.getElementById('status');
-                statusEl.className = "error-text";
-                statusEl.innerText = "Error: Must be run inside Trimble Connect as an extension. Details: " + error.message;
+                document.getElementById('status').className = "error-text";
+                document.getElementById('status').innerText = "Error: Use inside Trimble Connect.";
             }
         }
 
-        // Main Calculation Logic
         async function calculateWeights() {
             const statusEl = document.getElementById('status');
             const tbody = document.querySelector("#resultsTable tbody");
             const exportBtn = document.getElementById('exportBtn');
             const tableContainer = document.getElementById('resultsContainer');
             
-            // Reset UI
             tbody.innerHTML = "";
             exportBtn.style.display = "none";
             tableContainer.style.display = "none";
             calculatedResults = [];
             
-            if (!tcAPI || !tcAPI.viewer) {
-                statusEl.className = "error-text";
-                statusEl.innerText = "Error: Cannot find the 3D Viewer.";
-                return;
-            }
-
-            statusEl.className = "";
-            statusEl.innerText = "Analyzing selection data...";
-
-            // Read settings
-            const psetName = document.getElementById('propertySet').value.trim();
-            const profileName = document.getElementById('profileProp').value.trim();
-            const lengthName = document.getElementById('lengthProp').value.trim();
+            const psProfile = document.getElementById('psetProfile').value.trim();
+            const prProfile = document.getElementById('propProfile').value.trim();
+            const psLength = document.getElementById('psetLength').value.trim();
+            const prLength = document.getElementById('propLength').value.trim();
 
             try {
                 const selection = await tcAPI.viewer.getSelection();
-                console.log("Raw selection from API:", selection);
-                
                 if (!selection || selection.length === 0) {
                     statusEl.className = "error-text";
-                    statusEl.innerText = "Please select parts in the 3D model first.";
+                    statusEl.innerText = "Please select parts in the model first.";
                     return;
                 }
 
                 let objectsProps = [];
-                
-                // Properly call getObjectProperties using modelId and objectRuntimeIds per Trimble's spec
                 for (const sel of selection) {
                     const objIds = sel.objectRuntimeIds || sel.objectIds || [sel.objectId].filter(Boolean); 
-                    if (objIds && objIds.length > 0) {
-                        try {
-                            const props = await tcAPI.viewer.getObjectProperties(sel.modelId, objIds);
-                            console.log("Fetched props for model:", sel.modelId, props);
-                            if (props) {
-                                objectsProps = objectsProps.concat(props);
-                            }
-                        } catch (propErr) {
-                            console.error("Failed to fetch props for model", sel.modelId, propErr);
-                        }
+                    if (objIds.length > 0) {
+                        const props = await tcAPI.viewer.getObjectProperties(sel.modelId, objIds);
+                        if (props) objectsProps = objectsProps.concat(props);
                     }
                 }
 
-                console.log("All combined properties:", objectsProps);
-
-                if (!objectsProps || objectsProps.length === 0) {
+                if (objectsProps.length === 0) {
                     statusEl.className = "error-text";
-                    statusEl.innerText = "Could not retrieve any properties from the selected parts. Check your F12 console.";
+                    statusEl.innerText = "Could not retrieve properties.";
                     return;
                 }
 
-                // Diagnostic Counters
-                let processedCount = 0;
-                let missingPset = 0;
-                let missingProfile = 0;
-                let missingLength = 0;
-                let profileNotInDB = 0;
+                let processedCount = 0, missPsetProf = 0, missPsetLen = 0, missProfVal = 0, missLenVal = 0, notInDb = 0;
 
                 for (const obj of objectsProps) {
-                    // Adapt to Trimble's property array vs object structural differences
-                    let targetPset = null;
-                    if (Array.isArray(obj.properties)) {
-                        targetPset = obj.properties.find(p => p.name === psetName);
-                    } else if (obj.properties && obj.properties[psetName]) {
-                        targetPset = obj.properties[psetName];
-                    }
+                    // Get Profile Value
+                    let profSet = Array.isArray(obj.properties) ? obj.properties.find(p => p.name === psProfile) : obj.properties[psProfile];
+                    if (!profSet) { missPsetProf++; continue; }
+                    let profileStr = Array.isArray(profSet.properties || profSet) ? (profSet.properties || profSet).find(p => p.name === prProfile)?.value : (profSet.properties || profSet)[prProfile];
+                    if (!profileStr) { missProfVal++; continue; }
 
-                    if (!targetPset) {
-                        missingPset++;
-                        continue;
-                    }
+                    // Get Length Value
+                    let lenSet = Array.isArray(obj.properties) ? obj.properties.find(p => p.name === psLength) : obj.properties[psLength];
+                    if (!lenSet) { missPsetLen++; continue; }
+                    let lengthRaw = Array.isArray(lenSet.properties || lenSet) ? (lenSet.properties || lenSet).find(p => p.name === prLength)?.value : (lenSet.properties || lenSet)[prLength];
+                    if (lengthRaw === undefined) { missLenVal++; continue; }
 
-                    // Extract actual property values robustly
-                    let profileStr = null;
-                    let lengthRaw = null;
-                    
-                    const actualProps = targetPset.properties || targetPset; 
-                    
-                    if (Array.isArray(actualProps)) {
-                        const profItem = actualProps.find(p => p.name === profileName);
-                        const lenItem = actualProps.find(p => p.name === lengthName);
-                        profileStr = profItem ? profItem.value : null;
-                        lengthRaw = lenItem ? lenItem.value : null;
+                    let lengthVal = parseFloat(lengthRaw);
+                    if (isNaN(lengthVal)) { missLenVal++; continue; }
+
+                    const dbKey = profileStr.toString().trim().toUpperCase(); 
+                    const weightPerMeter = weightDatabase[dbKey];
+
+                    if (weightPerMeter !== undefined) {
+                        const lengthInMeters = lengthVal > 100 ? lengthVal / 1000 : lengthVal; 
+                        const totalWeight = lengthInMeters * weightPerMeter;
+                        calculatedResults.push({ id: obj.objectId || obj.id, profile: profileStr, length: lengthInMeters.toFixed(3), weight: totalWeight.toFixed(2) });
+                        processedCount++;
                     } else {
-                        profileStr = actualProps[profileName];
-                        lengthRaw = actualProps[lengthName];
-                    }
-
-                    // Check 2: Does the Profile parameter exist?
-                    if (profileStr === undefined || profileStr === null || profileStr === "") {
-                        missingProfile++;
-                    }
-
-                    // Check 3: Does the Length parameter exist?
-                    if (lengthRaw === undefined || lengthRaw === null || lengthRaw === "") {
-                        missingLength++;
-                    }
-
-                    // If both exist, attempt calculation
-                    if (profileStr && lengthRaw !== undefined && lengthRaw !== null) {
-                        let lengthVal = parseFloat(lengthRaw);
-                        
-                        if (isNaN(lengthVal)) {
-                            missingLength++;
-                            continue;
-                        }
-
-                        const dbKey = profileStr.toString().trim().toUpperCase(); 
-                        const weightPerMeter = weightDatabase[dbKey];
-
-                        if (weightPerMeter !== undefined) {
-                            const lengthInMeters = lengthVal > 100 ? lengthVal / 1000 : lengthVal; 
-                            const totalWeight = lengthInMeters * weightPerMeter;
-
-                            calculatedResults.push({
-                                id: obj.objectId || obj.id,
-                                profile: profileStr,
-                                length: lengthInMeters.toFixed(3),
-                                weight: totalWeight.toFixed(2)
-                            });
-                            processedCount++;
-                        } else {
-                            profileNotInDB++;
-                        }
+                        notInDb++;
                     }
                 }
 
-                // Build Error Diagnostic Report
                 let errorLog = [];
-                if (missingPset > 0) errorLog.push(`- <b>${missingPset} parts</b> completely missing the Property Set: "${psetName}"`);
-                if (missingProfile > 0) errorLog.push(`- <b>${missingProfile} parts</b> missing the Section Property: "${profileName}"`);
-                if (missingLength > 0) errorLog.push(`- <b>${missingLength} parts</b> missing the Length Property: "${lengthName}"`);
-                if (profileNotInDB > 0) errorLog.push(`- <b>${profileNotInDB} parts</b> had a section size not found in your uploaded .lis file.`);
+                if (missPsetProf > 0) errorLog.push(`- ${missPsetProf} parts missing Profile Tab: "${psProfile}"`);
+                if (missProfVal > 0) errorLog.push(`- ${missProfVal} parts missing Profile Property: "${prProfile}"`);
+                if (missPsetLen > 0) errorLog.push(`- ${missPsetLen} parts missing Length Tab: "${psLength}"`);
+                if (missLenVal > 0) errorLog.push(`- ${missLenVal} parts missing Length Property: "${prLength}"`);
+                if (notInDb > 0) errorLog.push(`- ${notInDb} parts section sizes not in .lis file.`);
 
                 if (calculatedResults.length > 0) {
-                    // Render Table
                     calculatedResults.forEach(row => {
                         const tr = document.createElement("tr");
                         tr.innerHTML = `<td>${row.id}</td><td>${row.profile}</td><td>${row.length}</td><td><strong>${row.weight}</strong></td>`;
                         tbody.appendChild(tr);
                     });
-                    
                     tableContainer.style.display = "block";
                     exportBtn.style.display = "block";
-                    
-                    statusEl.className = "";
-                    let successMsg = `Success! Calculated weights for ${processedCount} parts.`;
-                    if (errorLog.length > 0) {
-                        successMsg += `<br><br><b>Ignored Parts:</b><br>${errorLog.join('<br>')}`;
-                    }
-                    statusEl.innerHTML = successMsg;
-
+                    statusEl.innerHTML = `Success: ${processedCount} parts.` + (errorLog.length > 0 ? `<br><br><b>Issues:</b><br>${errorLog.join('<br>')}` : "");
                 } else {
                     statusEl.className = "error-text";
-                    statusEl.innerHTML = `<strong>No weights calculated. Here is why:</strong><br><br>${errorLog.join('<br>')}<br><br>Check your settings to make sure the text matches Trimble exactly.`;
+                    statusEl.innerHTML = `<strong>No results:</strong><br>${errorLog.join('<br>')}`;
                 }
-
             } catch (err) {
-                console.error("Calculation Error:", err);
                 statusEl.className = "error-text";
-                statusEl.innerText = "Error during calculation: " + (err.message || JSON.stringify(err));
+                statusEl.innerText = "Error: " + err.message;
             }
         }
 
-        // CSV Export Logic
         function exportToCSV() {
-            if (calculatedResults.length === 0) return;
-            
-            let csvContent = "data:text/csv;charset=utf-8,";
-            csvContent += "Object ID,Section Size,Length (m),Weight (kg)\n";
-            
-            calculatedResults.forEach(row => {
-                csvContent += `${row.id},${row.profile},${row.length},${row.weight}\n`;
-            });
-            
-            const encodedUri = encodeURI(csvContent);
+            let csvContent = "data:text/csv;charset=utf-8,Object ID,Section Size,Length (m),Weight (kg)\n";
+            calculatedResults.forEach(row => { csvContent += `${row.id},${row.profile},${row.length},${row.weight}\n`; });
             const link = document.createElement("a");
-            link.setAttribute("href", encodedUri);
-            link.setAttribute("download", "trimble_steel_weights.csv");
+            link.setAttribute("href", encodeURI(csvContent));
+            link.setAttribute("download", "trimble_weights.csv");
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
@@ -411,7 +323,6 @@
         window.onload = initAPI;
         document.getElementById('calcBtn').addEventListener('click', calculateWeights);
         document.getElementById('exportBtn').addEventListener('click', exportToCSV);
-
     </script>
 </body>
 </html>
