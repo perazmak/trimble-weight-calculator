@@ -56,6 +56,12 @@
             background: #eef;
             border-radius: 4px;
             border: 1px solid #ccd;
+            word-wrap: break-word;
+        }
+        .error-text {
+            color: #d8000c !important;
+            background-color: #ffbaba !important;
+            border: 1px solid #d8000c !important;
         }
     </style>
 </head>
@@ -96,43 +102,50 @@
             if (!file) return;
 
             const statusEl = document.getElementById('status');
+            statusEl.className = "";
             statusEl.innerText = "Parsing profile database... Please wait.";
 
             const reader = new FileReader();
             reader.onload = function(e) {
-                const content = e.target.result;
-                let count = 0;
-                weightDatabase = {}; // Reset database memory
+                try {
+                    const content = e.target.result;
+                    let count = 0;
+                    weightDatabase = {}; // Reset database memory
 
-                // Efficiently parse the large .lis file by splitting into profile chunks
-                const chunks = content.split('PROFILE_NAME');
-                for (let i = 1; i < chunks.length; i++) {
-                    const chunk = chunks[i];
-                    
-                    // Extract the profile name
-                    const nameMatch = chunk.match(/^\s*=\s*"([^"]+)";/);
-                    if (nameMatch) {
-                        const profileName = nameMatch[1].trim().toUpperCase();
+                    // Efficiently parse the large .lis file by splitting into profile chunks
+                    const chunks = content.split('PROFILE_NAME');
+                    for (let i = 1; i < chunks.length; i++) {
+                        const chunk = chunks[i];
                         
-                        // Extract the weight
-                        const weightMatch = chunk.match(/"WEIGHT_PER_UNIT_LENGTH"\s+([0-9\.E\+\-]+)/);
-                        if (weightMatch) {
-                            const weight = parseFloat(weightMatch[1]);
-                            if (!isNaN(weight)) {
-                                weightDatabase[profileName] = weight;
-                                count++;
+                        // Extract the profile name
+                        const nameMatch = chunk.match(/^\s*=\s*"([^"]+)";/);
+                        if (nameMatch) {
+                            const profileName = nameMatch[1].trim().toUpperCase();
+                            
+                            // Extract the weight
+                            const weightMatch = chunk.match(/"WEIGHT_PER_UNIT_LENGTH"\s+([0-9\.E\+\-]+)/);
+                            if (weightMatch) {
+                                const weight = parseFloat(weightMatch[1]);
+                                if (!isNaN(weight)) {
+                                    weightDatabase[profileName] = weight;
+                                    count++;
+                                }
                             }
                         }
                     }
-                }
 
-                if (count > 0) {
-                    statusEl.innerText = `Database loaded: ${count} profiles found. Ready to calculate.`;
-                    if (tcAPI) {
-                        document.getElementById('calcBtn').disabled = false;
+                    if (count > 0) {
+                        statusEl.innerText = `Database loaded: ${count} profiles found. Ready to calculate.`;
+                        if (tcAPI) {
+                            document.getElementById('calcBtn').disabled = false;
+                        }
+                    } else {
+                        statusEl.className = "error-text";
+                        statusEl.innerText = "No weights found. Make sure this is a valid Tekla profiles.lis file.";
                     }
-                } else {
-                    statusEl.innerText = "No weights found. Make sure this is a valid Tekla profiles.lis file.";
+                } catch (parseError) {
+                    statusEl.className = "error-text";
+                    statusEl.innerText = "File Parsing Error: " + parseError.message;
                 }
             };
             reader.readAsText(file);
@@ -145,7 +158,9 @@
                 document.getElementById('status').innerText = "Connected! Please load your .lis database file above.";
             } catch (error) {
                 console.error("API Initialization Failed", error);
-                document.getElementById('status').innerText = "Error: Must be run inside Trimble Connect as an extension.";
+                const statusEl = document.getElementById('status');
+                statusEl.className = "error-text";
+                statusEl.innerText = "Error: Must be run inside Trimble Connect as an extension. Details: " + error.message;
             }
         }
 
@@ -157,6 +172,7 @@
             }
 
             const statusEl = document.getElementById('status');
+            statusEl.className = "";
             statusEl.innerText = "Processing selected parts...";
 
             // Read settings
@@ -172,15 +188,40 @@
                     return;
                 }
 
+                // Flatten the selection properly for the API
+                let flatSelection = [];
+                for (const sel of selection) {
+                    if (sel.objectIds && sel.objectIds.length > 0) {
+                        for (const oid of sel.objectIds) {
+                            flatSelection.push({ modelId: sel.modelId, objectId: oid });
+                        }
+                    } else if (sel.objectId) {
+                        flatSelection.push({ modelId: sel.modelId, objectId: sel.objectId });
+                    }
+                }
+
+                if (flatSelection.length === 0) {
+                    statusEl.innerText = "No valid objects found in your selection.";
+                    return;
+                }
+
                 let processedCount = 0;
                 let updatedObjects = [];
 
-                const objectsProps = await tcAPI.viewer.getProperties(selection);
+                // Try to fetch properties
+                const objectsProps = await tcAPI.viewer.getProperties(flatSelection);
+
+                if (!objectsProps || objectsProps.length === 0) {
+                    statusEl.className = "error-text";
+                    statusEl.innerText = "Could not retrieve properties for the selected objects. Make sure they have property data.";
+                    return;
+                }
 
                 for (const obj of objectsProps) {
                     let profileStr = null;
                     let lengthVal = null;
 
+                    // Check if properties exist and navigate the structure
                     if (obj.properties && obj.properties[psetName]) {
                         profileStr = obj.properties[psetName][profileName];
                         lengthVal = parseFloat(obj.properties[psetName][lengthName]);
@@ -192,7 +233,6 @@
 
                         // If profile exists in the loaded file
                         if (weightPerMeter !== undefined) {
-                            // Assume length > 100 means millimeters and convert to meters
                             const lengthInMeters = lengthVal > 100 ? lengthVal / 1000 : lengthVal; 
                             const totalWeight = lengthInMeters * weightPerMeter;
 
@@ -214,12 +254,14 @@
                     await tcAPI.viewer.setProperties(updatedObjects);
                     statusEl.innerText = `Success! Calculated weights for ${processedCount} parts. Open the Data Table to export.`;
                 } else {
+                    statusEl.className = "error-text";
                     statusEl.innerText = "No parts matched your property settings, or the section wasn't in your loaded .lis file.";
                 }
 
             } catch (err) {
                 console.error("Calculation Error:", err);
-                statusEl.innerText = "An error occurred. Please check the browser console for details.";
+                statusEl.className = "error-text";
+                statusEl.innerText = "Error during calculation: " + (err.message || JSON.stringify(err));
             }
         }
 
