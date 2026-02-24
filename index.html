@@ -184,39 +184,24 @@
             const lengthName = document.getElementById('lengthProp').value.trim();
 
             try {
+                // Get the raw native selection from the Trimble 3D viewer
                 const selection = await tcAPI.viewer.getSelection();
                 
                 if (!selection || selection.length === 0) {
+                    statusEl.className = "error-text";
                     statusEl.innerText = "Please select parts in the 3D model first.";
-                    return;
-                }
-
-                // Flatten the selection properly for the API
-                let flatSelection = [];
-                for (const sel of selection) {
-                    if (sel.objectIds && sel.objectIds.length > 0) {
-                        for (const oid of sel.objectIds) {
-                            flatSelection.push({ modelId: sel.modelId, objectId: oid });
-                        }
-                    } else if (sel.objectId) {
-                        flatSelection.push({ modelId: sel.modelId, objectId: sel.objectId });
-                    }
-                }
-
-                if (flatSelection.length === 0) {
-                    statusEl.innerText = "No valid objects found in your selection.";
                     return;
                 }
 
                 let processedCount = 0;
                 let updatedObjects = [];
 
-                // Try to fetch properties
-                const objectsProps = await tcAPI.viewer.getProperties(flatSelection);
+                // Pass the native selection directly to the properties fetcher
+                const objectsProps = await tcAPI.viewer.getProperties(selection);
 
                 if (!objectsProps || objectsProps.length === 0) {
                     statusEl.className = "error-text";
-                    statusEl.innerText = "Could not retrieve properties for the selected objects. Make sure they have property data.";
+                    statusEl.innerText = `Could not retrieve properties. Ensure you are selecting "Objects" and not "Assemblies". Selection data: ${JSON.stringify(selection)}`;
                     return;
                 }
 
