@@ -1,7 +1,7 @@
 {
   "title": "Steel Weight Calculator",
   "icon": "https://img.icons8.com/color/48/000000/weight-kg.png",
-  "description": "v17 Diagnostic Mode: Identifying API failures for Color and Selection.",
-  "url": "https://perazmak.github.io/trimble-weight-calculator/index.html?v=17",
+  "description": "v18: Fixed Selection & Transparency-based Audit (Color fallback).",
+  "url": "https://perazmak.github.io/trimble-weight-calculator/index.html?v=18",
   "enabled": true
 }
