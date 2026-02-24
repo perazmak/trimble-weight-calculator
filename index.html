@@ -3,31 +3,31 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Steel Weight Calculator v6</title>
+    <title>Steel Weight Calculator v7</title>
     <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
     <style>
         body { font-family: sans-serif; padding: 15px; background-color: #f4f4f4; font-size: 13px; }
-        .version-tag { font-size: 10px; color: #888; text-align: right; }
+        .version-tag { font-size: 10px; color: #888; text-align: right; margin-bottom: 5px; }
         .section-box { background: #fff; border: 1px solid #ddd; padding: 10px; border-radius: 4px; margin-bottom: 10px; }
-        .section-title { font-weight: bold; margin-bottom: 5px; color: #005f9e; font-size: 11px; text-transform: uppercase; }
+        .section-title { font-weight: bold; margin-bottom: 5px; color: #005f9e; font-size: 11px; text-transform: uppercase; border-bottom: 1px solid #eee; padding-bottom: 3px; }
         label { display: block; font-weight: 600; margin-bottom: 2px; font-size: 11px; }
         input { width: 100%; padding: 6px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; margin-bottom: 8px; font-size: 12px; }
         button { color: white; border: none; padding: 10px; border-radius: 4px; cursor: pointer; width: 100%; font-weight: bold; margin-top: 5px; }
         #calcBtn { background-color: #005f9e; }
         #auditBtn { background-color: #6c757d; }
-        #exportBtn { background-color: #28a745; display: none; }
-        #resetBtn { background-color: #f8f9fa; color: #333; border: 1px solid #ccc; font-size: 11px; margin-top: 15px;}
-        button:disabled { background-color: #ccc; cursor: not-allowed; }
-        #status { margin-top: 10px; padding: 8px; background: #fff; border-radius: 4px; border: 1px solid #ddd; font-size: 12px; }
-        .table-container { max-height: 250px; overflow-y: auto; display: none; margin-top: 10px; border: 1px solid #ccc; background: #fff; }
+        #exportBtn { background-color: #28a745; display: none; margin-top: 10px;}
+        #resetBtn { background-color: #fff; color: #333; border: 1px solid #ccc; font-size: 10px; margin-top: 15px; padding: 5px; }
+        button:disabled { background-color: #ccc !important; cursor: not-allowed; }
+        #status { margin-top: 10px; padding: 8px; background: #fff; border-radius: 4px; border: 1px solid #ddd; font-size: 12px; min-height: 20px; }
+        .table-container { max-height: 200px; overflow-y: auto; display: none; margin-top: 10px; border: 1px solid #ccc; background: #fff; }
         table { width: 100%; border-collapse: collapse; font-size: 10px; }
         th, td { border: 1px solid #eee; padding: 4px; text-align: left; }
         th { background-color: #f1f1f1; position: sticky; top: 0; }
-        .row-err { background-color: #fff0f0; }
+        .row-err { background-color: #fff0f0; color: #d8000c; }
     </style>
 </head>
 <body>
-    <div class="version-tag">v6.0 (GUID & Tonnes)</div>
+    <div class="version-tag">App Version: 7.0 (Strict mm)</div>
     <h3>Steel Weight Calc</h3>
     
     <label>1. Load Tekla .lis file</label>
@@ -49,15 +49,15 @@
         <input type="text" id="propLength" value="Length">
     </div>
 
-    <button id="calcBtn" disabled>Calculate weights v6</button>
-    <button id="auditBtn">Visual Audit (Colors)</button>
+    <button id="calcBtn" disabled title="Load .lis file and connect to model to enable">Calculate Weights v7</button>
+    <button id="auditBtn" title="Color model: Red (Len Err), Green (Name Err), Blue (DB Err)">Visual Audit (Colors)</button>
     
-    <div id="status">Ready. Load .lis file.</div>
+    <div id="status">Waiting for file and API...</div>
     
-    <button id="exportBtn">Export Full CSV (GUIDs)</button>
+    <button id="exportBtn">Export Full CSV (All Selected)</button>
     <div class="table-container" id="resultsContainer">
         <table id="resultsTable">
-            <thead><tr><th>GUID</th><th>Profile</th><th>Length(mm)</th><th>Weight(tn)</th></tr></thead>
+            <thead><tr><th>GUID</th><th>Profile</th><th>Len(mm)</th><th>Tn</th></tr></thead>
             <tbody></tbody>
         </table>
     </div>
@@ -67,11 +67,21 @@
     <script>
         let tcAPI;
         let weightDatabase = {};
-        let lastFullSelection = [];
+        let lastFullData = [];
 
-        // Parse LIS
+        function checkReadiness() {
+            const hasData = Object.keys(weightDatabase).length > 0;
+            const hasAPI = !!tcAPI;
+            document.getElementById('calcBtn').disabled = !(hasData && hasAPI);
+            if (hasData && hasAPI) {
+                document.getElementById('status').innerText = "Ready to calculate.";
+            }
+        }
+
+        // LIS Parsing
         document.getElementById('dbFile').addEventListener('change', function(e) {
             const file = e.target.files[0];
+            if (!file) return;
             const reader = new FileReader();
             reader.onload = function(event) {
                 const chunks = event.target.result.split('PROFILE_NAME');
@@ -82,8 +92,7 @@
                         weightDatabase[nameMatch[1].trim().toUpperCase()] = parseFloat(weightMatch[1]);
                     }
                 }
-                document.getElementById('status').innerText = "Database loaded.";
-                if (tcAPI) document.getElementById('calcBtn').disabled = false;
+                checkReadiness();
             };
             reader.readAsText(file);
         });
@@ -91,16 +100,16 @@
         async function initAPI() {
             try {
                 tcAPI = await TrimbleConnectWorkspace.connect(window.parent);
-                document.getElementById('status').innerText = "Connected.";
-            } catch (err) { document.getElementById('status').innerText = "API Error."; }
+                checkReadiness();
+            } catch (err) { document.getElementById('status').innerText = "API Connection Failed."; }
         }
 
-        async function processSelection(isVisualOnly = false) {
+        async function runTool(isVisual) {
             const statusEl = document.getElementById('status');
             const tbody = document.querySelector("#resultsTable tbody");
             tbody.innerHTML = "";
-            lastFullSelection = [];
-
+            lastFullData = [];
+            
             const psProf = document.getElementById('psetProfile').value.trim();
             const prProf = document.getElementById('propProfile').value.trim();
             const psLen = document.getElementById('psetLength').value.trim();
@@ -109,7 +118,7 @@
             try {
                 const selection = await tcAPI.viewer.getSelection();
                 if (!selection || selection.length === 0) {
-                    statusEl.innerText = "Please select parts in model.";
+                    statusEl.innerText = "Please select parts first.";
                     return;
                 }
 
@@ -120,69 +129,82 @@
                     const props = await tcAPI.viewer.getObjectProperties(sel.modelId, objIds);
                     
                     for (const obj of props) {
-                        let guid = obj.guid || obj.id;
-                        let profSet = Array.isArray(obj.properties) ? obj.properties.find(p => p.name === psProf) : obj.properties[psProf];
-                        let profile = Array.isArray(profSet?.properties || profSet) ? (profSet.properties || profSet).find(p => p.name === prProf)?.value : (profSet?.properties || profSet)?.[prProf];
+                        const guid = obj.guid || "NO_GUID";
                         
-                        let lenSet = Array.isArray(obj.properties) ? obj.properties.find(p => p.name === psLen) : obj.properties[psLen];
-                        let length = Array.isArray(lenSet?.properties || lenSet) ? (lenSet.properties || lenSet).find(p => p.name === prLen)?.value : (lenSet?.properties || lenSet)?.[prLen];
+                        // Extract Profile
+                        let pSet = Array.isArray(obj.properties) ? obj.properties.find(p => p.name === psProf) : obj.properties[psProf];
+                        let profile = Array.isArray(pSet?.properties || pSet) ? (pSet.properties || pSet).find(p => p.name === prProf)?.value : (pSet?.properties || pSet)?.[prProf];
+                        
+                        // Extract Length
+                        let lSet = Array.isArray(obj.properties) ? obj.properties.find(p => p.name === psLen) : obj.properties[psLen];
+                        let length = Array.isArray(lSet?.properties || lSet) ? (lSet.properties || lSet).find(p => p.name === prLen)?.value : (lSet?.properties || lSet)?.[prLen];
 
-                        let errorReason = "";
-                        let weightTn = "0.000";
+                        let statusNote = "OK";
+                        let tn = "0.000";
 
                         if (!length || isNaN(parseFloat(length))) {
-                            errorReason = "Missing Length";
+                            statusNote = "Error: Missing/Invalid Length";
                             idsRed.push(obj.id);
                         } else if (!profile) {
-                            errorReason = "Missing Profile";
+                            statusNote = "Error: Missing Profile Name";
                             idsGreen.push(obj.id);
                         } else {
-                            const weightKgPerM = weightDatabase[profile.toString().toUpperCase()];
-                            if (!weightKgPerM) {
-                                errorReason = "Profile not in database";
+                            const kgPerM = weightDatabase[profile.toString().toUpperCase()];
+                            if (!kgPerM) {
+                                statusNote = "Error: Profile not in .lis";
                                 idsBlue.push(obj.id);
                             } else {
-                                const lMm = parseFloat(length);
-                                const totalWeightTn = (lMm / 1000) * weightKgPerM / 1000;
-                                weightTn = totalWeightTn.toFixed(3);
+                                // Strictly mm to tonnes: (mm / 1000) * kg_per_m / 1000
+                                const weightTn = (parseFloat(length) / 1000) * kgPerM / 1000;
+                                tn = weightTn.toFixed(3);
                                 idsGrey.push(obj.id);
                             }
                         }
 
-                        lastFullSelection.push({ 
-                            guid: guid, 
-                            profile: profile || "N/A", 
-                            length: length || "N/A", 
-                            weight: weightTn, 
-                            error: errorReason 
-                        });
+                        lastFullData.push({ guid, profile: profile || "N/A", length: length || "N/A", tn, statusNote });
 
                         const tr = document.createElement("tr");
-                        if (errorReason) tr.className = "row-err";
-                        tr.innerHTML = `<td>${guid}</td><td>${profile || "ERR"}</td><td>${length || "ERR"}</td><td>${weightTn}</td>`;
+                        if (statusNote !== "OK") tr.className = "row-err";
+                        tr.innerHTML = `<td>${guid}</td><td>${profile || "ERR"}</td><td>${length || "ERR"}</td><td>${tn}</td>`;
                         tbody.appendChild(tr);
                     }
                 }
 
-                if (isVisualOnly) {
-                    await tcAPI.viewer.setObjectsOpacity(null, 0.1); // Model Transparent
-                    if (idsRed.length > 0) await tcAPI.viewer.setObjectsColor(idsRed, { r: 255, g: 0, b: 0 }); // Red: Len
-                    if (idsGreen.length > 0) await tcAPI.viewer.setObjectsColor(idsGreen, { r: 0, g: 255, b: 0 }); // Green: Prof
-                    if (idsBlue.length > 0) await tcAPI.viewer.setObjectsColor(idsBlue, { r: 0, g: 0, b: 255 }); // Blue: DB Missing
-                    if (idsGrey.length > 0) await tcAPI.viewer.setObjectsColor(idsGrey, { r: 128, g: 128, b: 128 }); // Grey: Success
-                    statusEl.innerText = "Visual Audit applied. Check model colors.";
+                if (isVisual) {
+                    await tcAPI.viewer.setObjectsOpacity(null, 0.1);
+                    if (idsRed.length) await tcAPI.viewer.setObjectsColor(idsRed, { r: 255, g: 0, b: 0 });
+                    if (idsGreen.length) await tcAPI.viewer.setObjectsColor(idsGreen, { r: 0, g: 255, b: 0 });
+                    if (idsBlue.length) await tcAPI.viewer.setObjectsColor(idsBlue, { r: 0, g: 0, b: 255 });
+                    if (idsGrey.length) await tcAPI.viewer.setObjectsColor(idsGrey, { r: 128, g: 128, b: 128 });
+                    statusEl.innerText = "Audit complete. Red=Len, Green=Name, Blue=DB, Grey=OK.";
                 } else {
                     document.getElementById('resultsContainer').style.display = "block";
                     document.getElementById('exportBtn').style.display = "block";
-                    statusEl.innerText = `Processed ${lastFullSelection.length} parts.`;
+                    statusEl.innerText = `Computed ${lastFullData.filter(d=>d.statusNote==="OK").length} / ${lastFullData.length} parts.`;
                 }
             } catch (err) { statusEl.innerText = "Error: " + err.message; }
         }
 
-        function exportToCSV() {
-            let csvContent = "data:text/csv;charset=utf-8,GUID,Section Size,Length (mm),Weight (tn),Notes\n";
-            lastFullSelection.forEach(row => {
-                csvContent += `${row.guid},${row.profile},${row.length},${row.weight},${row.error}\n`;
-            });
+        function exportCSV() {
+            let csv = "data:text/csv;charset=utf-8,GUID,Profile,Length(mm),Weight(tn),Status\n";
+            lastFullData.forEach(r => { csv += `${r.guid},${r.profile},${r.length},${r.tn},${r.statusNote}\n`; });
             const link = document.createElement("a");
-            link.setAttribute("href", encodeURI
+            link.setAttribute("href", encodeURI(csv));
+            link.setAttribute("download", "steel_weight_audit.csv");
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        window.onload = initAPI;
+        document.getElementById('calcBtn').addEventListener('click', () => runTool(false));
+        document.getElementById('auditBtn').addEventListener('click', () => runTool(true));
+        document.getElementById('exportBtn').addEventListener('click', exportCSV);
+        document.getElementById('resetBtn').addEventListener('click', async () => {
+            await tcAPI.viewer.resetObjectsOpacity();
+            await tcAPI.viewer.resetObjectsColor();
+            document.getElementById('status').innerText = "Colors reset.";
+        });
+    </script>
+</body>
+</html>
