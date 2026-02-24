@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Steel Weight Calculator v8</title>
+    <title>Steel Weight Calculator v9</title>
     <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
     <style>
         body { font-family: sans-serif; padding: 15px; background-color: #f4f4f4; font-size: 13px; }
@@ -24,10 +24,11 @@
         th, td { border: 1px solid #eee; padding: 4px; text-align: left; }
         th { background-color: #f1f1f1; position: sticky; top: 0; }
         .row-err { background-color: #fff0f0; color: #d8000c; }
+        .row-plate { background-color: #f0faff; color: #005f9e; }
     </style>
 </head>
 <body>
-    <div class="version-tag">App Version: 8.0 (IFC Default)</div>
+    <div class="version-tag">App Version: 9.0 (Plate Calc & 4 Decimals)</div>
     <h3>Steel Weight Calc</h3>
     
     <label>1. Load Tekla .lis file</label>
@@ -49,7 +50,7 @@
         <input type="text" id="propLength" value="Length">
     </div>
 
-    <button id="calcBtn" disabled>Calculate Weights v8</button>
+    <button id="calcBtn" disabled>Calculate Weights v9</button>
     <button id="auditBtn">Visual Audit (Colors)</button>
     
     <div id="status">Waiting for file and API...</div>
@@ -101,6 +102,16 @@
             } catch (err) { document.getElementById('status').innerText = "API Error."; }
         }
 
+        // Helper to parse plate dimensions: PL10*200, PL 10x200, etc.
+        function getPlateDimensions(profileStr) {
+            const plateRegex = /(?:FLT|PLT|PL|FL)\s*(\d+(?:\.\d+)?)[x\*](\d+(?:\.\d+)?)/i;
+            const match = profileStr.match(plateRegex);
+            if (match) {
+                return { thickness: parseFloat(match[1]), width: parseFloat(match[2]) };
+            }
+            return null;
+        }
+
         async function runTool(isVisual) {
             const statusEl = document.getElementById('status');
             const tbody = document.querySelector("#resultsTable tbody");
@@ -119,7 +130,7 @@
                     return;
                 }
 
-                let idsRed = [], idsGreen = [], idsBlue = [], idsGrey = [];
+                let idsRed = [], idsGreen = [], idsBlue = [], idsGrey = [], idsYellow = [];
 
                 for (const sel of selection) {
                     const objIds = sel.objectRuntimeIds || sel.objectIds || [sel.objectId].filter(Boolean);
@@ -128,7 +139,6 @@
                     for (const obj of props) {
                         const guid = obj.guid || "N/A";
                         
-                        // Property Extraction Helper
                         const getVal = (psetName, propName) => {
                             let set = Array.isArray(obj.properties) ? obj.properties.find(p => p.name === psetName) : obj.properties[psetName];
                             let val = Array.isArray(set?.properties || set) ? (set.properties || set).find(p => p.name === propName)?.value : (set?.properties || set)?.[propName];
@@ -139,7 +149,7 @@
                         let lengthRaw = getVal(psLen, prLen);
 
                         let statusNote = "OK";
-                        let tn = "0.000";
+                        let tn = "0.0000";
                         let lengthInt = 0;
 
                         if (!lengthRaw || isNaN(parseFloat(lengthRaw))) {
@@ -150,47 +160,72 @@
                             idsGreen.push(obj.id);
                         } else {
                             lengthInt = Math.round(parseFloat(lengthRaw));
-                            const kgPerM = weightDatabase[profile.toString().toUpperCase()];
-                            if (!kgPerM) {
-                                statusNote = "Err: Profile not in LIS";
-                                idsBlue.push(obj.id);
-                            } else {
-                                const weightTn = (lengthInt / 1000) * kgPerM / 1000;
-                                tn = weightTn.toFixed(3);
+                            const profileKey = profile.toString().trim().toUpperCase();
+                            let weightKgPerM = weightDatabase[profileKey];
+                            
+                            if (weightKgPerM) {
+                                // Standard LIS calculation
+                                const weightTn = (lengthInt / 1000) * weightKgPerM / 1000;
+                                tn = weightTn.toFixed(4);
                                 idsGrey.push(obj.id);
+                            } else {
+                                // Attempt Plate Logic
+                                const dims = getPlateDimensions(profileKey);
+                                if (dims) {
+                                    // Plate Weight (tn) = T * W * L * 7.85e-9
+                                    const plateWeightTn = dims.thickness * dims.width * lengthInt * 0.00000000785;
+                                    tn = plateWeightTn.toFixed(4);
+                                    statusNote = "Calculated weight, profile not in the LIS database";
+                                    idsYellow.push(obj.id);
+                                } else {
+                                    statusNote = "Err: Profile not in LIS/Not a Plate";
+                                    idsBlue.push(obj.id);
+                                }
                             }
                         }
 
                         lastFullData.push({ guid, profile: profile || "N/A", length: lengthInt, tn, statusNote });
 
                         const tr = document.createElement("tr");
-                        if (statusNote !== "OK") tr.className = "row-err";
+                        if (statusNote.startsWith("Err")) tr.className = "row-err";
+                        if (statusNote.includes("calculated")) tr.className = "row-plate";
                         tr.innerHTML = `<td>${guid}</td><td>${profile || "ERR"}</td><td>${lengthInt}</td><td>${tn}</td>`;
                         tbody.appendChild(tr);
                     }
                 }
 
                 if (isVisual) {
-                    await tcAPI.viewer.setObjectsTransparency(null, 90); // 90% transparent
-                    if (idsRed.length) await tcAPI.viewer.setObjectsColor(idsRed, { r: 255, g: 0, b: 0 });
-                    if (idsGreen.length) await tcAPI.viewer.setObjectsColor(idsGreen, { r: 0, g: 255, b: 0 });
-                    if (idsBlue.length) await tcAPI.viewer.setObjectsColor(idsBlue, { r: 0, g: 0, b: 255 });
-                    if (idsGrey.length) await tcAPI.viewer.setObjectsColor(idsGrey, { r: 128, g: 128, b: 128 });
-                    statusEl.innerText = "Audit Applied. Red=Len, Green=Prof, Blue=LIS.";
+                    // Safety check for API methods
+                    const setCol = tcAPI.viewer.setObjectsColor;
+                    const setTrans = tcAPI.viewer.setObjectsTransparency || tcAPI.viewer.setObjectsOpacity;
+                    
+                    if (setTrans) await setTrans.call(tcAPI.viewer, null, 90);
+                    if (setCol) {
+                        if (idsRed.length) await setCol.call(tcAPI.viewer, idsRed, { r: 255, g: 0, b: 0 });
+                        if (idsGreen.length) await setCol.call(tcAPI.viewer, idsGreen, { r: 0, g: 255, b: 0 });
+                        if (idsBlue.length) await setCol.call(tcAPI.viewer, idsBlue, { r: 0, g: 0, b: 255 });
+                        if (idsYellow.length) await setCol.call(tcAPI.viewer, idsYellow, { r: 255, g: 255, b: 0 }); // Yellow for plates
+                        if (idsGrey.length) await setCol.call(tcAPI.viewer, idsGrey, { r: 128, g: 128, b: 128 });
+                    }
+                    statusEl.innerText = "Audit Applied. Red=Len, Green=Prof, Blue=LIS, Yellow=Plate.";
                 } else {
                     document.getElementById('resultsContainer').style.display = "block";
                     document.getElementById('exportBtn').style.display = "block";
-                    statusEl.innerText = `Done: ${lastFullData.length} parts.`;
+                    statusEl.innerText = `Done: ${lastFullData.length} parts analyzed.`;
                 }
             } catch (err) { statusEl.innerText = "Error: " + err.message; }
         }
 
         function exportCSV() {
             let csv = "data:text/csv;charset=utf-8,GUID,Profile,Length(mm),Weight(tn),Status\n";
-            lastFullData.forEach(r => { csv += `${r.guid},${r.profile},${r.length},${r.tn},${r.statusNote}\n`; });
+            lastFullData.forEach(r => { 
+                // Escape commas in status strings
+                const cleanStatus = r.statusNote.replace(/,/g, "");
+                csv += `${r.guid},${r.profile},${r.length},${r.tn},${cleanStatus}\n`; 
+            });
             const link = document.createElement("a");
             link.setAttribute("href", encodeURI(csv));
-            link.setAttribute("download", "steel_weight_audit_v8.csv");
+            link.setAttribute("download", "steel_weight_audit_v9.csv");
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
@@ -201,8 +236,10 @@
         document.getElementById('auditBtn').addEventListener('click', () => runTool(true));
         document.getElementById('exportBtn').addEventListener('click', exportCSV);
         document.getElementById('resetBtn').addEventListener('click', async () => {
-            await tcAPI.viewer.resetObjectsTransparency();
-            await tcAPI.viewer.resetObjectsColor();
+            const rTrans = tcAPI.viewer.resetObjectsTransparency || tcAPI.viewer.resetObjectsOpacity;
+            const rCol = tcAPI.viewer.resetObjectsColor;
+            if (rTrans) await rTrans.call(tcAPI.viewer);
+            if (rCol) await rCol.call(tcAPI.viewer);
             document.getElementById('status').innerText = "Model reset.";
         });
     </script>
