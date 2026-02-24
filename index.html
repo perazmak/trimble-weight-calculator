@@ -48,6 +48,14 @@
         button:hover:not(:disabled) { 
             background-color: #004b7c; 
         }
+        #exportBtn {
+            background-color: #28a745;
+            display: none;
+            margin-bottom: 15px;
+        }
+        #exportBtn:hover {
+            background-color: #218838;
+        }
         #status { 
             margin-top: 15px; 
             font-size: 13px; 
@@ -62,6 +70,29 @@
             color: #d8000c !important;
             background-color: #ffbaba !important;
             border: 1px solid #d8000c !important;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+            font-size: 12px;
+            background-color: white;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 6px;
+            text-align: left;
+        }
+        th {
+            background-color: #005f9e;
+            color: white;
+        }
+        .table-container {
+            max-height: 300px;
+            overflow-y: auto;
+            margin-top: 10px;
+            border: 1px solid #ccc;
+            display: none;
         }
     </style>
 </head>
@@ -89,12 +120,29 @@
         <input type="text" id="lengthProp" value="LENGTH" title="The exact name of the length property">
     </div>
 
-    <button id="calcBtn" disabled>Calculate & Write Weights</button>
+    <button id="calcBtn" disabled>Calculate Weights</button>
     <div id="status">Waiting for API connection...</div>
+    
+    <button id="exportBtn">Export to CSV</button>
+    <div class="table-container" id="resultsContainer">
+        <table id="resultsTable">
+            <thead>
+                <tr>
+                    <th>Object ID</th>
+                    <th>Section</th>
+                    <th>Length (m)</th>
+                    <th>Weight (kg)</th>
+                </tr>
+            </thead>
+            <tbody>
+                </tbody>
+        </table>
+    </div>
 
     <script>
         let tcAPI;
         let weightDatabase = {};
+        let calculatedResults = [];
 
         // Parse the .lis file dynamically when the user selects it
         document.getElementById('dbFile').addEventListener('change', function(event) {
@@ -167,16 +215,24 @@
         // Main Calculation Logic
         async function calculateWeights() {
             const statusEl = document.getElementById('status');
+            const tbody = document.querySelector("#resultsTable tbody");
+            const exportBtn = document.getElementById('exportBtn');
+            const tableContainer = document.getElementById('resultsContainer');
             
-            // Check if running directly in browser instead of Trimble Connect
+            // Reset UI
+            tbody.innerHTML = "";
+            exportBtn.style.display = "none";
+            tableContainer.style.display = "none";
+            calculatedResults = [];
+            
             if (!tcAPI || !tcAPI.viewer) {
                 statusEl.className = "error-text";
-                statusEl.innerText = "Error: Cannot find the 3D Viewer. You are visiting this page as a standard website. You must load this URL inside the Trimble Connect Extension panel to access the 3D model.";
+                statusEl.innerText = "Error: Cannot find the 3D Viewer.";
                 return;
             }
 
             statusEl.className = "";
-            statusEl.innerText = "Processing selected parts...";
+            statusEl.innerText = "Analyzing selection data...";
 
             // Read settings
             const psetName = document.getElementById('propertySet').value.trim();
@@ -184,7 +240,6 @@
             const lengthName = document.getElementById('lengthProp').value.trim();
 
             try {
-                // Get the raw native selection from the Trimble 3D viewer
                 const selection = await tcAPI.viewer.getSelection();
                 
                 if (!selection || selection.length === 0) {
@@ -193,57 +248,99 @@
                     return;
                 }
 
-                let processedCount = 0;
-                let updatedObjects = [];
-
-                // Pass the native selection directly to the properties fetcher
-                const objectsProps = await tcAPI.viewer.getProperties(selection);
+                const objectsProps = await tcAPI.viewer.getObjectProperties(selection);
 
                 if (!objectsProps || objectsProps.length === 0) {
                     statusEl.className = "error-text";
-                    statusEl.innerText = `Could not retrieve properties. Ensure you are selecting "Objects" and not "Assemblies". Selection data: ${JSON.stringify(selection)}`;
+                    statusEl.innerText = "Could not retrieve any properties from the selected parts.";
                     return;
                 }
 
-                for (const obj of objectsProps) {
-                    let profileStr = null;
-                    let lengthVal = null;
+                // Diagnostic Counters
+                let processedCount = 0;
+                let missingPset = 0;
+                let missingProfile = 0;
+                let missingLength = 0;
+                let profileNotInDB = 0;
 
-                    // Check if properties exist and navigate the structure
-                    if (obj.properties && obj.properties[psetName]) {
-                        profileStr = obj.properties[psetName][profileName];
-                        lengthVal = parseFloat(obj.properties[psetName][lengthName]);
+                for (const obj of objectsProps) {
+                    // Check 1: Does the Property Set tab exist?
+                    if (!obj.properties || !obj.properties[psetName]) {
+                        missingPset++;
+                        continue;
                     }
 
-                    if (profileStr && !isNaN(lengthVal)) {
-                        const dbKey = profileStr.trim().toUpperCase(); 
+                    const partProps = obj.properties[psetName];
+                    let profileStr = partProps[profileName];
+                    let lengthRaw = partProps[lengthName];
+
+                    // Check 2: Does the Profile parameter exist?
+                    if (profileStr === undefined || profileStr === null || profileStr === "") {
+                        missingProfile++;
+                    }
+
+                    // Check 3: Does the Length parameter exist?
+                    if (lengthRaw === undefined || lengthRaw === null || lengthRaw === "") {
+                        missingLength++;
+                    }
+
+                    // If both exist, attempt calculation
+                    if (profileStr && lengthRaw !== undefined && lengthRaw !== null) {
+                        let lengthVal = parseFloat(lengthRaw);
+                        
+                        if (isNaN(lengthVal)) {
+                            missingLength++;
+                            continue;
+                        }
+
+                        const dbKey = profileStr.toString().trim().toUpperCase(); 
                         const weightPerMeter = weightDatabase[dbKey];
 
-                        // If profile exists in the loaded file
                         if (weightPerMeter !== undefined) {
                             const lengthInMeters = lengthVal > 100 ? lengthVal / 1000 : lengthVal; 
                             const totalWeight = lengthInMeters * weightPerMeter;
 
-                            updatedObjects.push({
-                                modelId: obj.modelId,
-                                objectId: obj.objectId,
-                                properties: {
-                                    "Calculations": { 
-                                        "Weight_kg": totalWeight.toFixed(2)
-                                    }
-                                }
+                            calculatedResults.push({
+                                id: obj.objectId,
+                                profile: profileStr,
+                                length: lengthInMeters.toFixed(3),
+                                weight: totalWeight.toFixed(2)
                             });
                             processedCount++;
+                        } else {
+                            profileNotInDB++;
                         }
                     }
                 }
 
-                if (updatedObjects.length > 0) {
-                    await tcAPI.viewer.setProperties(updatedObjects);
-                    statusEl.innerText = `Success! Calculated weights for ${processedCount} parts. Open the Data Table to export.`;
+                // Build Error Diagnostic Report
+                let errorLog = [];
+                if (missingPset > 0) errorLog.push(`- <b>${missingPset} parts</b> completely missing the Property Set: "${psetName}"`);
+                if (missingProfile > 0) errorLog.push(`- <b>${missingProfile} parts</b> missing the Section Property: "${profileName}"`);
+                if (missingLength > 0) errorLog.push(`- <b>${missingLength} parts</b> missing the Length Property: "${lengthName}"`);
+                if (profileNotInDB > 0) errorLog.push(`- <b>${profileNotInDB} parts</b> had a section size not found in your uploaded .lis file.`);
+
+                if (calculatedResults.length > 0) {
+                    // Render Table
+                    calculatedResults.forEach(row => {
+                        const tr = document.createElement("tr");
+                        tr.innerHTML = `<td>${row.id}</td><td>${row.profile}</td><td>${row.length}</td><td><strong>${row.weight}</strong></td>`;
+                        tbody.appendChild(tr);
+                    });
+                    
+                    tableContainer.style.display = "block";
+                    exportBtn.style.display = "block";
+                    
+                    statusEl.className = "";
+                    let successMsg = `Success! Calculated weights for ${processedCount} parts.`;
+                    if (errorLog.length > 0) {
+                        successMsg += `<br><br><b>Ignored Parts:</b><br>${errorLog.join('<br>')}`;
+                    }
+                    statusEl.innerHTML = successMsg;
+
                 } else {
                     statusEl.className = "error-text";
-                    statusEl.innerText = "No parts matched your property settings, or the section wasn't in your loaded .lis file.";
+                    statusEl.innerHTML = `<strong>No weights calculated. Here is why:</strong><br><br>${errorLog.join('<br>')}<br><br>Check your settings to make sure the text matches Trimble exactly.`;
                 }
 
             } catch (err) {
@@ -253,8 +350,29 @@
             }
         }
 
+        // CSV Export Logic
+        function exportToCSV() {
+            if (calculatedResults.length === 0) return;
+            
+            let csvContent = "data:text/csv;charset=utf-8,";
+            csvContent += "Object ID,Section Size,Length (m),Weight (kg)\n";
+            
+            calculatedResults.forEach(row => {
+                csvContent += `${row.id},${row.profile},${row.length},${row.weight}\n`;
+            });
+            
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", "trimble_steel_weights.csv");
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
         window.onload = initAPI;
         document.getElementById('calcBtn').addEventListener('click', calculateWeights);
+        document.getElementById('exportBtn').addEventListener('click', exportToCSV);
 
     </script>
 </body>
