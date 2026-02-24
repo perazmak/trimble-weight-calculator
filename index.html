@@ -3,41 +3,40 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Steel Weight Calculator v15</title>
+    <title>Steel Weight Calculator v16</title>
     <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
     <style>
-        body { font-family: sans-serif; padding: 15px; background-color: #f4f4f4; font-size: 13px; }
+        body { font-family: sans-serif; padding: 15px; background-color: #f4f4f4; font-size: 12px; }
         .version-tag { font-size: 10px; color: #888; text-align: right; margin-bottom: 5px; }
         .section-box { background: #fff; border: 1px solid #ddd; padding: 10px; border-radius: 4px; margin-bottom: 10px; }
-        .section-title { font-weight: bold; margin-bottom: 5px; color: #005f9e; font-size: 11px; text-transform: uppercase; border-bottom: 1px solid #eee; padding-bottom: 3px; }
-        label { display: block; font-weight: 600; margin-bottom: 2px; font-size: 11px; }
-        input { width: 100%; padding: 6px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; margin-bottom: 8px; font-size: 12px; }
+        .section-title { font-weight: bold; margin-bottom: 5px; color: #005f9e; font-size: 10px; text-transform: uppercase; border-bottom: 1px solid #eee; padding-bottom: 3px; }
+        label { display: block; font-weight: 600; margin-bottom: 2px; }
+        input { width: 100%; padding: 6px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; margin-bottom: 8px; }
         
         .btn-group { display: flex; gap: 5px; margin-top: 5px; flex-wrap: wrap; }
-        button { color: white; border: none; padding: 10px; border-radius: 4px; cursor: pointer; font-weight: bold; flex: 1 1 45%; min-width: 120px; }
+        button { color: white; border: none; padding: 10px; border-radius: 4px; cursor: pointer; font-weight: bold; flex: 1 1 45%; }
         
         #calcBtn { background-color: #005f9e; width: 100%; flex: 1 1 100%; }
         #auditBtn { background-color: #6c757d; }
         #selErrorBtn { background-color: #d8000c; }
         #selDbBtn { background-color: #f39c12; }
         #exportBtn { background-color: #28a745; width: 100%; flex: 1 1 100%; display: none; margin-top: 10px;}
-        #resetBtn { background-color: #fff; color: #333; border: 1px solid #ccc; font-size: 10px; margin-top: 15px; padding: 5px; width: 100%; }
+        #resetBtn { background-color: #fff; color: #333; border: 1px solid #ccc; font-size: 10px; margin-top: 15px; width: 100%; }
         
-        #totalBox { background-color: #005f9e; color: white; padding: 10px; border-radius: 4px; margin-top: 10px; display: none; text-align: center; }
-        #totalBox span { font-size: 18px; display: block; font-weight: bold; }
+        #totalBox { background-color: #005f9e; color: white; padding: 8px; border-radius: 4px; margin-top: 10px; display: none; text-align: center; }
+        #totalBox span { font-size: 16px; display: block; font-weight: bold; }
 
-        button:disabled { background-color: #ccc !important; cursor: not-allowed; }
-        #status { margin-top: 10px; padding: 8px; background: #fff; border-radius: 4px; border: 1px solid #ddd; font-size: 12px; min-height: 20px; }
+        button:disabled { background-color: #ccc !important; }
+        #status { margin-top: 10px; padding: 8px; background: #fff; border: 1px solid #ddd; border-radius: 4px; min-height: 18px; }
         .table-container { max-height: 180px; overflow-y: auto; display: none; margin-top: 10px; border: 1px solid #ccc; background: #fff; }
         table { width: 100%; border-collapse: collapse; font-size: 10px; }
         th, td { border: 1px solid #eee; padding: 4px; text-align: left; }
         th { background-color: #f1f1f1; position: sticky; top: 0; }
         .row-err { background-color: #fff0f0; color: #d8000c; }
-        .row-plate { background-color: #f0faff; color: #005f9e; }
     </style>
 </head>
 <body>
-    <div class="version-tag">v15.0 (Selection Fix)</div>
+    <div class="version-tag">App Version: 16.0</div>
     <h3>Steel Weight Calc</h3>
     
     <label>1. Load Tekla .lis file</label>
@@ -59,7 +58,7 @@
         <input type="text" id="propLength" value="Length">
     </div>
 
-    <button id="calcBtn" disabled>Calculate Weights v15</button>
+    <button id="calcBtn" disabled>Calculate Weights v16</button>
     
     <div class="btn-group">
         <button id="auditBtn">Color Model</button>
@@ -69,10 +68,7 @@
     
     <div id="status">Waiting for file...</div>
 
-    <div id="totalBox">
-        TOTAL SELECTION WEIGHT
-        <span id="totalVal">0.0000 tn</span>
-    </div>
+    <div id="totalBox">TOTAL SELECTION WEIGHT <span id="totalVal">0.0000 tn</span></div>
     
     <button id="exportBtn">Export Audit CSV</button>
     <div class="table-container" id="resultsContainer">
@@ -82,15 +78,16 @@
         </table>
     </div>
 
-    <button id="resetBtn">Reset All</button>
+    <button id="resetBtn">Reset Model</button>
 
     <script>
         let tcAPI;
         let weightDatabase = {};
         let lastFullData = [];
-        // Selection storage
-        let errorSelectionGroups = [];
-        let dbMissingSelectionGroups = [];
+        
+        // Structured storage to prevent "Select All" bug
+        let errorGroups = []; // Parts with missing properties
+        let dbMissingGroups = []; // Parts not found in .lis
 
         function checkReadiness() {
             if (Object.keys(weightDatabase).length > 0 && tcAPI) {
@@ -130,13 +127,10 @@
         async function runTool(mode) {
             const statusEl = document.getElementById('status');
             const tbody = document.querySelector("#resultsTable tbody");
-            const totalBox = document.getElementById('totalBox');
-            const totalVal = document.getElementById('totalVal');
-            
             tbody.innerHTML = "";
             lastFullData = [];
-            errorSelectionGroups = [];
-            dbMissingSelectionGroups = [];
+            errorGroups = [];
+            dbMissingGroups = [];
             let totalTonnage = 0;
             
             const psProf = document.getElementById('psetProfile').value.trim();
@@ -148,7 +142,7 @@
             try {
                 const selection = await tcAPI.viewer.getSelection();
                 if (!selection || selection.length === 0) {
-                    statusEl.innerText = "Select parts first.";
+                    statusEl.innerText = "Please select parts first.";
                     return;
                 }
 
@@ -156,18 +150,19 @@
 
                 for (const sel of selection) {
                     const modelId = sel.modelId;
-                    const props = await tcAPI.viewer.getObjectProperties(modelId, sel.objectRuntimeIds || sel.objectIds || [sel.objectId]);
+                    const runtimeIds = sel.objectRuntimeIds || sel.objectIds || [sel.objectId];
+                    const props = await tcAPI.viewer.getObjectProperties(modelId, runtimeIds);
                     
-                    const addToGroup = (list, id) => {
-                        let group = list.find(g => g.modelId === modelId);
-                        if (!group) { group = { modelId: modelId, objectIds: [] }; list.push(group); }
-                        group.objectIds.push(id);
+                    const addToSubGroup = (list, id) => {
+                        let g = list.find(x => x.modelId === modelId);
+                        if (!g) { g = { modelId: modelId, objectIds: [] }; list.push(g); }
+                        g.objectIds.push(id);
                     };
 
                     for (const obj of props) {
-                        const getVal = (psetName, propName) => {
-                            let set = Array.isArray(obj.properties) ? obj.properties.find(p => p.name === psetName) : obj.properties[psetName];
-                            return Array.isArray(set?.properties || set) ? (set.properties || set).find(p => p.name === propName)?.value : (set?.properties || set)?.[propName];
+                        const getVal = (pset, prop) => {
+                            let s = Array.isArray(obj.properties) ? obj.properties.find(p => p.name === pset) : obj.properties[pset];
+                            return Array.isArray(s?.properties || s) ? (s.properties || s).find(p => p.name === prop)?.value : (s?.properties || s)?.[prop];
                         };
 
                         let profile = getVal(psProf, prProf);
@@ -176,12 +171,12 @@
 
                         if (!lengthRaw || isNaN(parseFloat(lengthRaw))) {
                             statusNote = "Err: Missing Length";
-                            addToGroup(colorGroups.red, obj.id);
-                            addToGroup(errorSelectionGroups, obj.id);
+                            addToSubGroup(colorGroups.red, obj.id);
+                            addToSubGroup(errorGroups, obj.id);
                         } else if (!profile) {
                             statusNote = "Err: Missing Profile";
-                            addToGroup(colorGroups.green, obj.id);
-                            addToGroup(errorSelectionGroups, obj.id);
+                            addToSubGroup(colorGroups.green, obj.id);
+                            addToSubGroup(errorGroups, obj.id);
                         } else {
                             lengthInt = Math.round(parseFloat(lengthRaw));
                             const profileKey = profile.toString().trim().toUpperCase();
@@ -190,59 +185,57 @@
                             if (weightKgPerM) {
                                 tn = (lengthInt / 1000) * weightKgPerM / 1000;
                                 totalTonnage += tn;
-                                addToGroup(colorGroups.grey, obj.id);
+                                addToSubGroup(colorGroups.grey, obj.id);
                             } else {
                                 const dims = getPlateDimensions(profileKey);
                                 if (dims) {
                                     tn = dims.thickness * dims.width * lengthInt * 0.00000000785;
                                     totalTonnage += tn;
                                     statusNote = "Calculated plate";
-                                    addToGroup(colorGroups.yellow, obj.id);
+                                    addToSubGroup(colorGroups.yellow, obj.id);
                                 } else {
                                     statusNote = "Err: Not in LIS";
-                                    addToGroup(colorGroups.blue, obj.id);
-                                    addToGroup(dbMissingSelectionGroups, obj.id);
+                                    addToSubGroup(colorGroups.blue, obj.id);
+                                    addToSubGroup(dbMissingGroups, obj.id);
                                 }
                             }
                         }
 
                         lastFullData.push({ guid: obj.guid || "N/A", profile: profile || "N/A", length: lengthInt, tn: tn.toFixed(4), statusNote, timestamp });
-                        
                         const tr = document.createElement("tr");
                         if (statusNote.startsWith("Err")) tr.className = "row-err";
-                        if (statusNote.includes("Calculated")) tr.className = "row-plate";
                         tr.innerHTML = `<td>${obj.guid || "N/A"}</td><td>${profile || "ERR"}</td><td>${lengthInt}</td><td>${tn.toFixed(4)}</td>`;
                         tbody.appendChild(tr);
                     }
                 }
 
                 if (mode === 'audit') {
-                    // Try to find coloring/transparency functions
-                    const setCol = tcAPI.viewer.setObjectsColor || tcAPI.viewer.setObjectColors;
-                    const setTrans = tcAPI.viewer.setObjectsTransparency || tcAPI.viewer.setObjectsOpacity;
-
-                    if (setTrans) await setTrans.call(tcAPI.viewer, null, 90);
+                    // Force clean reset first to prevent ghosting issues
+                    if (tcAPI.viewer.resetObjectsColor) await tcAPI.viewer.resetObjectsColor();
                     
-                    const apply = async (list, rgb) => { 
-                        if (setCol) {
-                            for (const g of list) await setCol.call(tcAPI.viewer, g.objectIds, rgb, [g.modelId]); 
-                        }
+                    const setColFunc = tcAPI.viewer.setObjectsColor || tcAPI.viewer.setObjectColors;
+                    const setOpacityFunc = tcAPI.viewer.setObjectsOpacity || tcAPI.viewer.setObjectsTransparency;
+
+                    if (setOpacityFunc) await setOpacityFunc.call(tcAPI.viewer, null, 0.2); // Set others to 20%
+                    
+                    const paint = async (list, rgb) => { 
+                        if (setColFunc) { for (const g of list) await setColFunc.call(tcAPI.viewer, g.objectIds, rgb, [g.modelId]); }
                     };
 
-                    await apply(colorGroups.red, { r: 255, g: 0, b: 0 });
-                    await apply(colorGroups.green, { r: 0, g: 255, b: 0 });
-                    await apply(colorGroups.blue, { r: 0, g: 0, b: 255 });
-                    await apply(colorGroups.yellow, { r: 255, g: 255, b: 0 });
-                    await apply(colorGroups.grey, { r: 100, g: 100, b: 100 });
-                    statusEl.innerText = "Model audited with colors.";
+                    await paint(colorGroups.red, { r: 255, g: 0, b: 0 });
+                    await paint(colorGroups.green, { r: 0, g: 255, b: 0 });
+                    await paint(colorGroups.blue, { r: 0, g: 0, b: 255 });
+                    await paint(colorGroups.yellow, { r: 255, g: 255, b: 0 });
+                    await paint(colorGroups.grey, { r: 128, g: 128, b: 128 });
+                    statusEl.innerText = "Model Audited.";
                 } else {
                     document.getElementById('resultsContainer').style.display = "block";
                     document.getElementById('exportBtn').style.display = "block";
-                    totalBox.style.display = "block";
-                    totalVal.innerText = totalTonnage.toFixed(4) + " tn";
-                    statusEl.innerText = `Computed ${lastFullData.length} parts.`;
+                    document.getElementById('totalBox').style.display = "block";
+                    document.getElementById('totalVal').innerText = totalTonnage.toFixed(4) + " tn";
+                    statusEl.innerText = `Calculated ${lastFullData.length} parts.`;
                 }
-            } catch (err) { statusEl.innerText = "Error: " + err.message; }
+            } catch (err) { statusEl.innerText = "Error: " + err.message; console.error(err); }
         }
 
         window.onload = initAPI;
@@ -250,21 +243,17 @@
         document.getElementById('auditBtn').addEventListener('click', () => runTool('audit'));
         
         document.getElementById('selErrorBtn').addEventListener('click', async () => { 
-            if (errorSelectionGroups.length > 0) {
-                await tcAPI.viewer.setSelection(errorSelectionGroups);
-                document.getElementById('status').innerText = "Selected items with errors.";
-            } else {
-                alert("No errors found to select. Run 'Calculate' first.");
-            }
+            if (errorGroups.length > 0) {
+                await tcAPI.viewer.setSelection([]); // Clear selection first
+                await tcAPI.viewer.setSelection(errorGroups);
+            } else { alert("No errors found. Run Calculate first."); }
         });
 
         document.getElementById('selDbBtn').addEventListener('click', async () => { 
-            if (dbMissingSelectionGroups.length > 0) {
-                await tcAPI.viewer.setSelection(dbMissingSelectionGroups);
-                document.getElementById('status').innerText = "Selected items missing from DB.";
-            } else {
-                alert("No DB-missing items found. Run 'Calculate' first.");
-            }
+            if (dbMissingGroups.length > 0) {
+                await tcAPI.viewer.setSelection([]); // Clear selection first
+                await tcAPI.viewer.setSelection(dbMissingGroups);
+            } else { alert("No DB missing items. Run Calculate first."); }
         });
 
         document.getElementById('exportBtn').addEventListener('click', () => {
@@ -272,15 +261,13 @@
             lastFullData.forEach(r => csv += `${r.guid},${r.profile},${r.length},${r.tn},${r.statusNote.replace(/,/g, "")},${r.timestamp}\n`);
             const link = document.createElement("a");
             link.setAttribute("href", encodeURI(csv));
-            link.setAttribute("download", "steel_weight_v15.csv");
+            link.setAttribute("download", "steel_weight_v16.csv");
             link.click();
         });
 
         document.getElementById('resetBtn').addEventListener('click', async () => { 
-            const rCol = tcAPI.viewer.resetObjectsColor || tcAPI.viewer.resetObjectColors;
-            const rTrans = tcAPI.viewer.resetObjectsTransparency || tcAPI.viewer.resetObjectsOpacity;
-            if (rCol) await rCol.call(tcAPI.viewer);
-            if (rTrans) await rTrans.call(tcAPI.viewer);
+            if (tcAPI.viewer.resetObjectsColor) await tcAPI.viewer.resetObjectsColor();
+            if (tcAPI.viewer.resetObjectsOpacity) await tcAPI.viewer.resetObjectsOpacity();
             document.getElementById('status').innerText = "Model Reset."; 
         });
     </script>
