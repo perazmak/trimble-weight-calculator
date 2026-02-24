@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Steel Weight Calculator</title>
+    
+    <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
+    
+    <style>
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
+            padding: 15px; 
+            color: #333; 
+            background-color: #f9f9f9;
+        }
+        .form-group { 
+            margin-bottom: 15px; 
+        }
+        label { 
+            display: block; 
+            font-weight: 600; 
+            margin-bottom: 5px; 
+            font-size: 13px; 
+        }
+        input[type="text"], input[type="file"] { 
+            width: 100%; 
+            padding: 8px; 
+            border: 1px solid #ccc; 
+            border-radius: 4px; 
+            box-sizing: border-box; 
+        }
+        button { 
+            background-color: #005f9e; 
+            color: white; 
+            border: none; 
+            padding: 10px 15px; 
+            border-radius: 4px; 
+            cursor: pointer; 
+            width: 100%; 
+            font-weight: bold; 
+            margin-top: 10px;
+        }
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        button:hover:not(:disabled) { 
+            background-color: #004b7c; 
+        }
+        #status { 
+            margin-top: 15px; 
+            font-size: 13px; 
+            color: #444; 
+            padding: 10px;
+            background: #eef;
+            border-radius: 4px;
+            border: 1px solid #ccd;
+        }
+    </style>
+</head>
+<body>
+
+    <h3>Weight Calculator</h3>
+    
+    <div class="form-group">
+        <label for="dbFile">1. Load Tekla Catalog (.lis)</label>
+        <input type="file" id="dbFile" accept=".lis,.txt" title="Upload your profiles.lis file">
+    </div>
+
+    <div class="form-group">
+        <label for="propertySet">2. Property Set Name</label>
+        <input type="text" id="propertySet" value="Tekla" title="The group where the properties live in Trimble Connect">
+    </div>
+
+    <div class="form-group">
+        <label for="profileProp">3. Section Size Property</label>
+        <input type="text" id="profileProp" value="PROFILE" title="The exact name of the section property">
+    </div>
+
+    <div class="form-group">
+        <label for="lengthProp">4. Length Property</label>
+        <input type="text" id="lengthProp" value="LENGTH" title="The exact name of the length property">
+    </div>
+
+    <button id="calcBtn" disabled>Calculate & Write Weights</button>
+    <div id="status">Waiting for API connection...</div>
+
+    <script>
+        let tcAPI;
+        let weightDatabase = {};
+
+        // Parse the .lis file dynamically when the user selects it
+        document.getElementById('dbFile').addEventListener('change', function(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const statusEl = document.getElementById('status');
+            statusEl.innerText = "Parsing profile database... Please wait.";
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const content = e.target.result;
+                let count = 0;
+                weightDatabase = {}; // Reset database memory
+
+                // Efficiently parse the large .lis file by splitting into profile chunks
+                const chunks = content.split('PROFILE_NAME');
+                for (let i = 1; i < chunks.length; i++) {
+                    const chunk = chunks[i];
+                    
+                    // Extract the profile name
+                    const nameMatch = chunk.match(/^\s*=\s*"([^"]+)";/);
+                    if (nameMatch) {
+                        const profileName = nameMatch[1].trim().toUpperCase();
+                        
+                        // Extract the weight
+                        const weightMatch = chunk.match(/"WEIGHT_PER_UNIT_LENGTH"\s+([0-9\.E\+\-]+)/);
+                        if (weightMatch) {
+                            const weight = parseFloat(weightMatch[1]);
+                            if (!isNaN(weight)) {
+                                weightDatabase[profileName] = weight;
+                                count++;
+                            }
+                        }
+                    }
+                }
+
+                if (count > 0) {
+                    statusEl.innerText = `Database loaded: ${count} profiles found. Ready to calculate.`;
+                    if (tcAPI) {
+                        document.getElementById('calcBtn').disabled = false;
+                    }
+                } else {
+                    statusEl.innerText = "No weights found. Make sure this is a valid Tekla profiles.lis file.";
+                }
+            };
+            reader.readAsText(file);
+        });
+
+        // Initialize Trimble Connect API
+        async function initAPI() {
+            try {
+                tcAPI = await TrimbleConnectWorkspace.connect(window.parent, (event, args) => {});
+                document.getElementById('status').innerText = "Connected! Please load your .lis database file above.";
+            } catch (error) {
+                console.error("API Initialization Failed", error);
+                document.getElementById('status').innerText = "Error: Must be run inside Trimble Connect as an extension.";
+            }
+        }
+
+        // Main Calculation Logic
+        async function calculateWeights() {
+            if (!tcAPI) {
+                alert("Trimble Connect API is not connected.");
+                return;
+            }
+
+            const statusEl = document.getElementById('status');
+            statusEl.innerText = "Processing selected parts...";
+
+            // Read settings
+            const psetName = document.getElementById('propertySet').value.trim();
+            const profileName = document.getElementById('profileProp').value.trim();
+            const lengthName = document.getElementById('lengthProp').value.trim();
+
+            try {
+                const selection = await tcAPI.viewer.getSelection();
+                
+                if (!selection || selection.length === 0) {
+                    statusEl.innerText = "Please select parts in the 3D model first.";
+                    return;
+                }
+
+                let processedCount = 0;
+                let updatedObjects = [];
+
+                const objectsProps = await tcAPI.viewer.getProperties(selection);
+
+                for (const obj of objectsProps) {
+                    let profileStr = null;
+                    let lengthVal = null;
+
+                    if (obj.properties && obj.properties[psetName]) {
+                        profileStr = obj.properties[psetName][profileName];
+                        lengthVal = parseFloat(obj.properties[psetName][lengthName]);
+                    }
+
+                    if (profileStr && !isNaN(lengthVal)) {
+                        const dbKey = profileStr.trim().toUpperCase(); 
+                        const weightPerMeter = weightDatabase[dbKey];
+
+                        // If profile exists in the loaded file
+                        if (weightPerMeter !== undefined) {
+                            // Assume length > 100 means millimeters and convert to meters
+                            const lengthInMeters = lengthVal > 100 ? lengthVal / 1000 : lengthVal; 
+                            const totalWeight = lengthInMeters * weightPerMeter;
+
+                            updatedObjects.push({
+                                modelId: obj.modelId,
+                                objectId: obj.objectId,
+                                properties: {
+                                    "Calculations": { 
+                                        "Weight_kg": totalWeight.toFixed(2)
+                                    }
+                                }
+                            });
+                            processedCount++;
+                        }
+                    }
+                }
+
+                if (updatedObjects.length > 0) {
+                    await tcAPI.viewer.setProperties(updatedObjects);
+                    statusEl.innerText = `Success! Calculated weights for ${processedCount} parts. Open the Data Table to export.`;
+                } else {
+                    statusEl.innerText = "No parts matched your property settings, or the section wasn't in your loaded .lis file.";
+                }
+
+            } catch (err) {
+                console.error("Calculation Error:", err);
+                statusEl.innerText = "An error occurred. Please check the browser console for details.";
+            }
+        }
+
+        window.onload = initAPI;
+        document.getElementById('calcBtn').addEventListener('click', calculateWeights);
+
+    </script>
+</body>
+</html>
