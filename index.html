@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Steel Weight Calculator v14</title>
+    <title>Steel Weight Calculator v15</title>
     <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
     <style>
         body { font-family: sans-serif; padding: 15px; background-color: #f4f4f4; font-size: 13px; }
@@ -23,10 +23,7 @@
         #exportBtn { background-color: #28a745; width: 100%; flex: 1 1 100%; display: none; margin-top: 10px;}
         #resetBtn { background-color: #fff; color: #333; border: 1px solid #ccc; font-size: 10px; margin-top: 15px; padding: 5px; width: 100%; }
         
-        #totalBox { 
-            background-color: #005f9e; color: white; padding: 10px; border-radius: 4px; 
-            margin-top: 10px; display: none; text-align: center;
-        }
+        #totalBox { background-color: #005f9e; color: white; padding: 10px; border-radius: 4px; margin-top: 10px; display: none; text-align: center; }
         #totalBox span { font-size: 18px; display: block; font-weight: bold; }
 
         button:disabled { background-color: #ccc !important; cursor: not-allowed; }
@@ -40,7 +37,7 @@
     </style>
 </head>
 <body>
-    <div class="version-tag">v14.0 (CSV Clean Export)</div>
+    <div class="version-tag">v15.0 (Selection Fix)</div>
     <h3>Steel Weight Calc</h3>
     
     <label>1. Load Tekla .lis file</label>
@@ -62,7 +59,7 @@
         <input type="text" id="propLength" value="Length">
     </div>
 
-    <button id="calcBtn" disabled>Calculate Weights v14</button>
+    <button id="calcBtn" disabled>Calculate Weights v15</button>
     
     <div class="btn-group">
         <button id="auditBtn">Color Model</button>
@@ -90,9 +87,10 @@
     <script>
         let tcAPI;
         let weightDatabase = {};
-        let errorIds = [];
-        let dbMissingIds = [];
         let lastFullData = [];
+        // Selection storage
+        let errorSelectionGroups = [];
+        let dbMissingSelectionGroups = [];
 
         function checkReadiness() {
             if (Object.keys(weightDatabase).length > 0 && tcAPI) {
@@ -137,8 +135,8 @@
             
             tbody.innerHTML = "";
             lastFullData = [];
-            errorIds = [];
-            dbMissingIds = [];
+            errorSelectionGroups = [];
+            dbMissingSelectionGroups = [];
             let totalTonnage = 0;
             
             const psProf = document.getElementById('psetProfile').value.trim();
@@ -157,11 +155,12 @@
                 let colorGroups = { red: [], green: [], blue: [], grey: [], yellow: [] };
 
                 for (const sel of selection) {
-                    const props = await tcAPI.viewer.getObjectProperties(sel.modelId, sel.objectRuntimeIds || sel.objectIds || [sel.objectId]);
+                    const modelId = sel.modelId;
+                    const props = await tcAPI.viewer.getObjectProperties(modelId, sel.objectRuntimeIds || sel.objectIds || [sel.objectId]);
                     
-                    const addToColor = (color, id) => {
-                        let group = colorGroups[color].find(g => g.modelId === sel.modelId);
-                        if (!group) { group = { modelId: sel.modelId, objectIds: [] }; colorGroups[color].push(group); }
+                    const addToGroup = (list, id) => {
+                        let group = list.find(g => g.modelId === modelId);
+                        if (!group) { group = { modelId: modelId, objectIds: [] }; list.push(group); }
                         group.objectIds.push(id);
                     };
 
@@ -177,12 +176,12 @@
 
                         if (!lengthRaw || isNaN(parseFloat(lengthRaw))) {
                             statusNote = "Err: Missing Length";
-                            addToColor('red', obj.id);
-                            errorIds.push({ modelId: sel.modelId, objectIds: [obj.id] });
+                            addToGroup(colorGroups.red, obj.id);
+                            addToGroup(errorSelectionGroups, obj.id);
                         } else if (!profile) {
                             statusNote = "Err: Missing Profile";
-                            addToColor('green', obj.id);
-                            errorIds.push({ modelId: sel.modelId, objectIds: [obj.id] });
+                            addToGroup(colorGroups.green, obj.id);
+                            addToGroup(errorSelectionGroups, obj.id);
                         } else {
                             lengthInt = Math.round(parseFloat(lengthRaw));
                             const profileKey = profile.toString().trim().toUpperCase();
@@ -191,30 +190,23 @@
                             if (weightKgPerM) {
                                 tn = (lengthInt / 1000) * weightKgPerM / 1000;
                                 totalTonnage += tn;
-                                addToColor('grey', obj.id);
+                                addToGroup(colorGroups.grey, obj.id);
                             } else {
                                 const dims = getPlateDimensions(profileKey);
                                 if (dims) {
                                     tn = dims.thickness * dims.width * lengthInt * 0.00000000785;
                                     totalTonnage += tn;
-                                    statusNote = "Calculated weight, profile not in the LIS database";
-                                    addToColor('yellow', obj.id);
+                                    statusNote = "Calculated plate";
+                                    addToGroup(colorGroups.yellow, obj.id);
                                 } else {
                                     statusNote = "Err: Not in LIS";
-                                    addToColor('blue', obj.id);
-                                    dbMissingIds.push({ modelId: sel.modelId, objectIds: [obj.id] });
+                                    addToGroup(colorGroups.blue, obj.id);
+                                    addToGroup(dbMissingSelectionGroups, obj.id);
                                 }
                             }
                         }
 
-                        lastFullData.push({ 
-                            guid: obj.guid || "N/A", 
-                            profile: profile || "N/A", 
-                            length: lengthInt, 
-                            tn: tn.toFixed(4), 
-                            statusNote,
-                            timestamp
-                        });
+                        lastFullData.push({ guid: obj.guid || "N/A", profile: profile || "N/A", length: lengthInt, tn: tn.toFixed(4), statusNote, timestamp });
                         
                         const tr = document.createElement("tr");
                         if (statusNote.startsWith("Err")) tr.className = "row-err";
@@ -225,38 +217,72 @@
                 }
 
                 if (mode === 'audit') {
-                    await tcAPI.viewer.setObjectsColor(null, { r: 200, g: 200, b: 200, a: 50 });
-                    const apply = async (list, rgb) => { for (const g of list) await tcAPI.viewer.setObjectsColor(g.objectIds, rgb, [g.modelId]); };
+                    // Try to find coloring/transparency functions
+                    const setCol = tcAPI.viewer.setObjectsColor || tcAPI.viewer.setObjectColors;
+                    const setTrans = tcAPI.viewer.setObjectsTransparency || tcAPI.viewer.setObjectsOpacity;
+
+                    if (setTrans) await setTrans.call(tcAPI.viewer, null, 90);
+                    
+                    const apply = async (list, rgb) => { 
+                        if (setCol) {
+                            for (const g of list) await setCol.call(tcAPI.viewer, g.objectIds, rgb, [g.modelId]); 
+                        }
+                    };
+
                     await apply(colorGroups.red, { r: 255, g: 0, b: 0 });
                     await apply(colorGroups.green, { r: 0, g: 255, b: 0 });
                     await apply(colorGroups.blue, { r: 0, g: 0, b: 255 });
                     await apply(colorGroups.yellow, { r: 255, g: 255, b: 0 });
                     await apply(colorGroups.grey, { r: 100, g: 100, b: 100 });
+                    statusEl.innerText = "Model audited with colors.";
                 } else {
                     document.getElementById('resultsContainer').style.display = "block";
                     document.getElementById('exportBtn').style.display = "block";
                     totalBox.style.display = "block";
                     totalVal.innerText = totalTonnage.toFixed(4) + " tn";
-                    statusEl.innerText = `Calculated at: ${timestamp}`;
+                    statusEl.innerText = `Computed ${lastFullData.length} parts.`;
                 }
             } catch (err) { statusEl.innerText = "Error: " + err.message; }
         }
+
+        window.onload = initAPI;
+        document.getElementById('calcBtn').addEventListener('click', () => runTool('calc'));
+        document.getElementById('auditBtn').addEventListener('click', () => runTool('audit'));
+        
+        document.getElementById('selErrorBtn').addEventListener('click', async () => { 
+            if (errorSelectionGroups.length > 0) {
+                await tcAPI.viewer.setSelection(errorSelectionGroups);
+                document.getElementById('status').innerText = "Selected items with errors.";
+            } else {
+                alert("No errors found to select. Run 'Calculate' first.");
+            }
+        });
+
+        document.getElementById('selDbBtn').addEventListener('click', async () => { 
+            if (dbMissingSelectionGroups.length > 0) {
+                await tcAPI.viewer.setSelection(dbMissingSelectionGroups);
+                document.getElementById('status').innerText = "Selected items missing from DB.";
+            } else {
+                alert("No DB-missing items found. Run 'Calculate' first.");
+            }
+        });
 
         document.getElementById('exportBtn').addEventListener('click', () => {
             let csv = "data:text/csv;charset=utf-8,GUID,Profile,Source_Length_mm,Weight_tn,Status,Calc_Timestamp\n";
             lastFullData.forEach(r => csv += `${r.guid},${r.profile},${r.length},${r.tn},${r.statusNote.replace(/,/g, "")},${r.timestamp}\n`);
             const link = document.createElement("a");
             link.setAttribute("href", encodeURI(csv));
-            link.setAttribute("download", "steel_weight_audit_v14.csv");
+            link.setAttribute("download", "steel_weight_v15.csv");
             link.click();
         });
 
-        window.onload = initAPI;
-        document.getElementById('calcBtn').addEventListener('click', () => runTool('calc'));
-        document.getElementById('auditBtn').addEventListener('click', () => runTool('audit'));
-        document.getElementById('selErrorBtn').addEventListener('click', () => { if (errorIds.length) tcAPI.viewer.setSelection(errorIds); });
-        document.getElementById('selDbBtn').addEventListener('click', () => { if (dbMissingIds.length) tcAPI.viewer.setSelection(dbMissingIds); });
-        document.getElementById('resetBtn').addEventListener('click', async () => { await tcAPI.viewer.resetObjectsColor(); });
+        document.getElementById('resetBtn').addEventListener('click', async () => { 
+            const rCol = tcAPI.viewer.resetObjectsColor || tcAPI.viewer.resetObjectColors;
+            const rTrans = tcAPI.viewer.resetObjectsTransparency || tcAPI.viewer.resetObjectsOpacity;
+            if (rCol) await rCol.call(tcAPI.viewer);
+            if (rTrans) await rTrans.call(tcAPI.viewer);
+            document.getElementById('status').innerText = "Model Reset."; 
+        });
     </script>
 </body>
 </html>
