@@ -1,7 +1,7 @@
 {
   "title": "Steel Weight Calculator",
   "icon": "https://img.icons8.com/color/48/000000/weight-kg.png",
-  "description": "Weights in tonnes (mm base). Audit colors: Red=Len, Green=Prof, Blue=LIS.",
-  "url": "https://perazmak.github.io/trimble-weight-calculator/index.html?v=8",
+  "description": "Calculates weights in tonnes (4 decimals). Plate logic included.",
+  "url": "https://perazmak.github.io/trimble-weight-calculator/index.html?v=9",
   "enabled": true
 }
