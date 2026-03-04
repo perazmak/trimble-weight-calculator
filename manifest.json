@@ -1,7 +1,7 @@
 {
   "title": "Steel Weight Calculator",
   "icon": "https://img.icons8.com/color/48/000000/weight-kg.png",
-  "description": "v36: Added CAD/BIM Layer extraction, filtering, and Auto Sniffing support.",
-  "url": "https://perazmak.github.io/trimble-weight-calculator/index.html?v=36",
+  "description": "v37: Auto Sniffer ignores 'bolt' lengths and automatically resolves 'Section/Cut' lengths to the shortest value.",
+  "url": "https://perazmak.github.io/trimble-weight-calculator/index.html?v=37",
   "enabled": true
 }
