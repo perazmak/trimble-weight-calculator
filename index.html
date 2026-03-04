@@ -3,22 +3,29 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Steel Weight Calculator v32</title>
+    <title>Steel Weight Calculator v33</title>
     <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
     <style>
-        body { font-family: sans-serif; padding: 12px; background-color: #f4f4f4; font-size: 13px; }
+        body { font-family: sans-serif; padding: 12px; background-color: #f4f4f4; font-size: 13px; margin: 0; }
         .version-tag { font-size: 10px; color: #888; text-align: right; margin-bottom: 5px; }
         
-        .mode-toggle { display: flex; background: #e0e0e0; border-radius: 4px; overflow: hidden; margin-bottom: 12px; }
+        /* Toggles and Selectors */
+        .controls-row { display: flex; gap: 10px; margin-bottom: 12px; }
+        .mode-toggle { display: flex; background: #e0e0e0; border-radius: 4px; overflow: hidden; flex: 1; }
         .mode-toggle input[type="radio"] { display: none; }
-        .mode-toggle label { flex: 1; text-align: center; padding: 10px; font-weight: bold; cursor: pointer; color: #555; font-size: 11px; }
+        .mode-toggle label { flex: 1; text-align: center; padding: 10px; font-weight: bold; cursor: pointer; color: #555; font-size: 11px; margin: 0; }
         .mode-toggle input[type="radio"]:checked + label { background: #005f9e; color: white; }
+        
+        .priority-box { flex: 1; display: flex; flex-direction: column; justify-content: center; }
+        .priority-box label { font-size: 10px; font-weight: bold; color: #555; margin-bottom: 2px; text-transform: uppercase; }
+        .priority-box select { padding: 6px; border: 1px solid #ccc; border-radius: 4px; font-size: 11px; outline: none; }
 
         .section-box { background: #fff; border: 1px solid #ddd; padding: 10px; border-radius: 4px; margin-bottom: 10px; }
         .section-title { font-weight: bold; margin-bottom: 8px; color: #005f9e; font-size: 11px; text-transform: uppercase; border-bottom: 1px solid #eee; padding-bottom: 3px; }
         label.input-label { display: block; font-weight: 600; margin-bottom: 2px; font-size: 11px; color: #555; }
         input.text-input, input[type="file"] { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; margin-bottom: 10px; font-size: 12px; }
         
+        .grid-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
         #userDefinedSettings { display: none; }
 
         button { color: white; border: none; padding: 12px; border-radius: 4px; cursor: pointer; font-weight: bold; width: 100%; }
@@ -30,62 +37,85 @@
         #totalBox span { font-size: 20px; display: block; font-weight: bold; color: #00ccff; }
 
         #resultsContainer { display: none; margin-top: 15px; }
-        .table-wrapper { max-height: 350px; overflow-y: auto; border: 1px solid #ccc; background: #fff; }
-        table { width: 100%; border-collapse: collapse; font-size: 11px; }
+        .table-wrapper { max-height: 400px; overflow-y: auto; overflow-x: auto; border: 1px solid #ccc; background: #fff; }
+        table { width: 100%; border-collapse: collapse; font-size: 10px; white-space: nowrap; }
         th, td { border: 1px solid #eee; padding: 6px; text-align: left; }
         
         thead { position: sticky; top: 0; z-index: 2; background-color: #005f9e; }
-        th.sort-header { color: white; cursor: pointer; user-select: none; font-size: 11px; padding-bottom: 2px;}
+        th.sort-header { color: white; cursor: pointer; user-select: none; font-size: 10px; padding-bottom: 2px;}
         th.sort-header:hover { background-color: #004b7c; }
         .filter-row { background-color: #eef4f9; }
         .col-filter { width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; box-sizing: border-box; font-size: 10px; }
         
         tr:hover { background-color: #f9f9f9; }
         .row-err { color: #d8000c; font-weight: bold; }
+        .row-warn { background-color: #fff8e1; color: #d35400; font-weight: bold; }
         .row-alias { color: #f39c12; font-style: italic; }
         .row-plate { color: #005f9e; font-style: italic; }
+        .col-used { background-color: #f0f7ff; font-weight: bold; }
     </style>
 </head>
 <body>
-    <div class="version-tag">App Version: 32.0 (IFC GUID Sniffing)</div>
+    <div class="version-tag">App Version: 33.0 (Multi-Length Priority)</div>
     <h3>Steel Weight Calc</h3>
     
     <label class="input-label">1. Load Tekla .lis file</label>
     <input type="file" id="dbFile" accept=".lis,.txt">
 
-    <div class="mode-toggle">
-        <input type="radio" id="modeAuto" name="calcMode" value="auto" checked>
-        <label for="modeAuto">AUTO PROPERTY</label>
-        
-        <input type="radio" id="modeUser" name="calcMode" value="user">
-        <label for="modeUser">USER DEFINED</label>
+    <div class="controls-row">
+        <div class="mode-toggle">
+            <input type="radio" id="modeAuto" name="calcMode" value="auto" checked>
+            <label for="modeAuto">AUTO PROPERTY</label>
+            <input type="radio" id="modeUser" name="calcMode" value="user">
+            <label for="modeUser">USER DEFINED</label>
+        </div>
+        <div class="priority-box">
+            <label for="lenPriority">Length Priority</label>
+            <select id="lenPriority">
+                <option value="L,S,C">1. Length | 2. Span | 3. Cut</option>
+                <option value="L,C,S">1. Length | 2. Cut | 3. Span</option>
+                <option value="S,L,C">1. Span | 2. Length | 3. Cut</option>
+                <option value="C,L,S">1. Cut | 2. Length | 3. Span</option>
+            </select>
+        </div>
     </div>
 
     <div id="userDefinedSettings">
-        <div class="section-box">
-            <div class="section-title">TYPE PROPERTY LOCATION</div>
-            <label class="input-label">Tab Name (Set or ROOT)</label>
-            <input type="text" id="psetType" class="text-input" value="ReferenceObject">
-            <label class="input-label">Property Name</label>
-            <input type="text" id="propType" class="text-input" value="Common Type">
+        <div class="grid-2col">
+            <div class="section-box">
+                <div class="section-title">TYPE LOCATION</div>
+                <input type="text" id="psetType" class="text-input" value="ReferenceObject" placeholder="Tab (Set) or ROOT">
+                <input type="text" id="propType" class="text-input" value="Common Type" placeholder="Property Name">
+            </div>
+            <div class="section-box">
+                <div class="section-title">PROFILE LOCATION</div>
+                <input type="text" id="psetProfile" class="text-input" value="Pset_QuantityTakeOff" placeholder="Tab (Set) or ROOT">
+                <input type="text" id="propProfile" class="text-input" value="Reference" placeholder="Property Name">
+            </div>
         </div>
         <div class="section-box">
-            <div class="section-title">PROFILE PROPERTY LOCATION</div>
-            <label class="input-label">Tab Name (Set or ROOT)</label>
-            <input type="text" id="psetProfile" class="text-input" value="Pset_QuantityTakeOff">
-            <label class="input-label">Property Name</label>
-            <input type="text" id="propProfile" class="text-input" value="Reference">
-        </div>
-        <div class="section-box">
-            <div class="section-title">LENGTH PROPERTY LOCATION</div>
-            <label class="input-label">Tab Name (Set or ROOT)</label>
-            <input type="text" id="psetLength" class="text-input" value="Dimensions">
-            <label class="input-label">Property Name (mm)</label>
-            <input type="text" id="propLength" class="text-input" value="Length">
+            <div class="section-title">LENGTH PROPERTIES LOCATION (mm)</div>
+            <div class="grid-2col">
+                <div>
+                    <label class="input-label">Std. Length</label>
+                    <input type="text" id="psetLen" class="text-input" value="Dimensions" placeholder="Tab Name">
+                    <input type="text" id="propLen" class="text-input" value="Length" placeholder="Prop Name">
+                </div>
+                <div>
+                    <label class="input-label">Span</label>
+                    <input type="text" id="psetSpan" class="text-input" value="" placeholder="Tab Name (Optional)">
+                    <input type="text" id="propSpan" class="text-input" value="" placeholder="Prop Name (Optional)">
+                </div>
+                <div>
+                    <label class="input-label">Cut Length</label>
+                    <input type="text" id="psetCut" class="text-input" value="" placeholder="Tab Name (Optional)">
+                    <input type="text" id="propCut" class="text-input" value="" placeholder="Prop Name (Optional)">
+                </div>
+            </div>
         </div>
     </div>
 
-    <button id="calcBtn" disabled>Calculate Weights v32</button>
+    <button id="calcBtn" disabled>Calculate Weights v33</button>
     <div id="status">Please load a .lis file to begin.</div>
 
     <div id="totalBox">
@@ -101,7 +131,10 @@
                         <th class="sort-header" onclick="sortTable('guid')">GUID ↕</th>
                         <th class="sort-header" onclick="sortTable('type')">Type ↕</th>
                         <th class="sort-header" onclick="sortTable('profile')">Profile ↕</th>
-                        <th class="sort-header" onclick="sortTable('length')">mm ↕</th>
+                        <th class="sort-header" onclick="sortTable('lenStd')">Length ↕</th>
+                        <th class="sort-header" onclick="sortTable('lenSpan')">Span ↕</th>
+                        <th class="sort-header" onclick="sortTable('lenCut')">Cut Len ↕</th>
+                        <th class="sort-header" onclick="sortTable('lenUsed')">Used mm ↕</th>
                         <th class="sort-header" onclick="sortTable('tn')">Tn ↕</th>
                         <th class="sort-header" onclick="sortTable('statusNote')">Status ↕</th>
                     </tr>
@@ -109,7 +142,10 @@
                         <th><input type="text" class="col-filter" id="filtGuid" placeholder="Filter..." onkeyup="filterTable()"></th>
                         <th><input type="text" class="col-filter" id="filtType" placeholder="Filter..." onkeyup="filterTable()"></th>
                         <th><input type="text" class="col-filter" id="filtProf" placeholder="Filter..." onkeyup="filterTable()"></th>
-                        <th><input type="text" class="col-filter" id="filtLen" placeholder="Filter..." onkeyup="filterTable()"></th>
+                        <th><input type="text" class="col-filter" id="filtLenStd" placeholder="..." onkeyup="filterTable()"></th>
+                        <th><input type="text" class="col-filter" id="filtLenSpan" placeholder="..." onkeyup="filterTable()"></th>
+                        <th><input type="text" class="col-filter" id="filtLenCut" placeholder="..." onkeyup="filterTable()"></th>
+                        <th><input type="text" class="col-filter" id="filtLenUsed" placeholder="..." onkeyup="filterTable()"></th>
                         <th><input type="text" class="col-filter" id="filtTn" placeholder="Filter..." onkeyup="filterTable()"></th>
                         <th><input type="text" class="col-filter" id="filtStat" placeholder="Filter..." onkeyup="filterTable()"></th>
                     </tr>
@@ -159,107 +195,92 @@
         function getManualWeight(profileStr, lengthMm, hasValidLength) {
             const regex3D = /(?:PL|PLT|FL|FLT)\s*(\d+(?:\.\d+)?)[x\*](\d+(?:\.\d+)?)[x\*](\d+(?:\.\d+)?)/i;
             const match3D = profileStr.match(regex3D);
-            if (match3D) {
-                const d1 = parseFloat(match3D[1]);
-                const d2 = parseFloat(match3D[2]);
-                const d3 = parseFloat(match3D[3]);
-                return { weight: d1 * d2 * d3 * 0.00000000785, note: "Baseplate (3D String)", extLen: Math.round(Math.max(d1, d2, d3)) };
-            }
+            if (match3D) return { weight: parseFloat(match3D[1]) * parseFloat(match3D[2]) * parseFloat(match3D[3]) * 0.00000000785, note: "Baseplate (3D String)", extLen: Math.round(Math.max(parseFloat(match3D[1]), parseFloat(match3D[2]), parseFloat(match3D[3]))) };
 
             const regex2D = /(?:FLT|PLT|PL|FL)\s*(\d+(?:\.\d+)?)[x\*](\d+(?:\.\d+)?)/i;
             const match2D = profileStr.match(regex2D);
-            if (match2D && hasValidLength) {
-                const t = parseFloat(match2D[1]);
-                const w = parseFloat(match2D[2]);
-                return { weight: t * w * lengthMm * 0.00000000785, note: "Plate Calc (2D)", extLen: lengthMm };
-            }
+            if (match2D && hasValidLength) return { weight: parseFloat(match2D[1]) * parseFloat(match2D[2]) * lengthMm * 0.00000000785, note: "Plate Calc (2D)", extLen: lengthMm };
+            
             return null;
         }
 
         function sniffProperties(obj) {
-            let foundProf = null, foundLen = null, foundType = null, foundGuid = null;
+            let res = { guids: new Set(), types: new Set(), profs: new Set(), lenStds: new Set(), lenSpans: new Set(), lenCuts: new Set() };
 
-            if (obj.guid) foundGuid = obj.guid;
-            if (obj.type) foundType = obj.type;
-            if (obj.objectType && !foundType) foundType = obj.objectType;
+            if (obj.guid) res.guids.add(obj.guid);
+            if (obj.type) res.types.add(obj.type);
+            if (obj.objectType) res.types.add(obj.objectType);
 
-            function scanLevel(propertiesArray) {
-                if (!propertiesArray || !Array.isArray(propertiesArray)) return;
-                
-                for (let i = 0; i < propertiesArray.length; i++) {
-                    let prop = propertiesArray[i];
-                    
+            function scanLevel(propsArr) {
+                if (!propsArr || !Array.isArray(propsArr)) return;
+                for (let prop of propsArr) {
                     if (prop.properties && Array.isArray(prop.properties)) {
                         scanLevel(prop.properties);
-                    } else if (prop.name !== undefined && prop.value !== undefined) {
+                    } else if (prop.name !== undefined && prop.value !== undefined && prop.value !== null && prop.value !== "") {
                         let n = prop.name.toString().toLowerCase();
                         let v = prop.value;
-                        if (v === null || v === "") continue;
-
                         let vStr = v.toString().trim().toUpperCase();
 
-                        // 1. Sniff GUID: Looking for 22-char IFC GlobalId or 36-char UUID
-                        if (!foundGuid && (n.includes("guid") || n.includes("globalid"))) {
-                            if (vStr.length === 22 || vStr.length === 36) foundGuid = v;
-                        }
-
-                        // 2. Sniff Profile
-                        if (!foundProf && typeof v === 'string') {
-                            if (weightDatabase[vStr] || vStr.match(/(?:FLT|PLT|PL|FL)\s*(\d+(?:\.\d+)?)[x\*](\d+(?:\.\d+)?)/i)) {
-                                foundProf = v;
-                            } else if (vStr.startsWith("UB") && weightDatabase[vStr.replace(/^UB/, "UKB")]) {
-                                foundProf = v;
-                            } else if (vStr.startsWith("UC") && weightDatabase[vStr.replace(/^UC/, "UKC")]) {
-                                foundProf = v;
+                        // GUID Sniffing (36-char UUID or 22-char Base64)
+                        if (n.includes("guid") || n.includes("globalid")) {
+                            if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(vStr) || /^[a-zA-Z0-9_\$]{22}$/.test(vStr)) {
+                                res.guids.add(v);
                             }
                         }
 
-                        // 3. Sniff Length
-                        if (!foundLen && n.includes("length") && !isNaN(parseFloat(v))) {
-                            foundLen = v;
+                        // Profile Sniffing
+                        if (weightDatabase[vStr] || /(?:FLT|PLT|PL|FL)\s*\d+/.test(vStr) || (vStr.startsWith("UB") && weightDatabase[vStr.replace(/^UB/, "UKB")]) || (vStr.startsWith("UC") && weightDatabase[vStr.replace(/^UC/, "UKC")])) {
+                            res.profs.add(v);
+                        } else if (n === "profile" || n === "reference" || n.includes("cross section")) {
+                            res.profs.add(v);
                         }
 
-                        // 4. Sniff Type
-                        if (!foundType && (n.includes("type") || n === "category")) {
-                            foundType = v;
+                        // Length Sniffing
+                        if (!isNaN(parseFloat(v))) {
+                            let num = Math.round(parseFloat(v));
+                            if (n.includes("cut length")) res.lenCuts.add(num);
+                            else if (n.includes("span")) res.lenSpans.add(num);
+                            else if (n === "length" || n.includes("length")) res.lenStds.add(num);
                         }
+
+                        // Type Sniffing
+                        if (n.includes("type") || n === "category") res.types.add(v);
                     }
                 }
             }
 
             if (obj.properties) {
-                if (Array.isArray(obj.properties)) {
-                    scanLevel(obj.properties);
-                } else {
-                    Object.keys(obj.properties).forEach(k => {
-                        let tab = obj.properties[k];
-                        if(tab.properties && Array.isArray(tab.properties)) scanLevel(tab.properties);
-                    });
-                }
+                if (Array.isArray(obj.properties)) scanLevel(obj.properties);
+                else Object.keys(obj.properties).forEach(k => { if(obj.properties[k].properties) scanLevel(obj.properties[k].properties); });
             }
-
-            return { profile: foundProf, length: foundLen, type: foundType, guid: foundGuid };
+            return res;
         }
 
         document.getElementById('calcBtn').onclick = async function() {
             const statusEl = document.getElementById('status');
             const totalValEl = document.getElementById('totalVal');
-            const totalBox = document.getElementById('totalBox');
             const isAutoMode = document.getElementById('modeAuto').checked;
+            const priorityOrder = document.getElementById('lenPriority').value.split(',');
             
-            totalBox.style.display = "block";
+            document.getElementById('totalBox').style.display = "block";
             totalValEl.innerText = "CALCULATING...";
             statusEl.innerText = "Accessing model data...";
 
             lastFullData = [];
             filteredData = [];
 
+            // User Mode Inputs
             const psType = document.getElementById('psetType').value.trim();
             const prType = document.getElementById('propType').value.trim();
             const psProf = document.getElementById('psetProfile').value.trim();
             const prProf = document.getElementById('propProfile').value.trim();
-            const psLen = document.getElementById('psetLength').value.trim();
-            const prLen = document.getElementById('propLength').value.trim();
+            
+            const psLen = document.getElementById('psetLen').value.trim();
+            const prLen = document.getElementById('propLen').value.trim();
+            const psSpan = document.getElementById('psetSpan').value.trim();
+            const prSpan = document.getElementById('propSpan').value.trim();
+            const psCut = document.getElementById('psetCut').value.trim();
+            const prCut = document.getElementById('propCut').value.trim();
 
             try {
                 const selection = await tcAPI.viewer.getSelection();
@@ -273,78 +294,108 @@
                     const props = await tcAPI.viewer.getObjectProperties(sel.modelId, sel.objectRuntimeIds || [sel.objectId]);
                     
                     for (const obj of props) {
-                        let elemType, profile, lengthRaw, guidRaw;
+                        let eGuid, eType, eProf, eLenStd, eLenSpan, eLenCut;
+                        let hasConflict = false;
 
                         if (isAutoMode) {
                             const sniffed = sniffProperties(obj);
-                            elemType = sniffed.type;
-                            profile = sniffed.profile;
-                            lengthRaw = sniffed.length;
-                            guidRaw = sniffed.guid;
+                            
+                            // Check for conflicting multi-data
+                            if (sniffed.profs.size > 1 || sniffed.lenStds.size > 1 || sniffed.lenSpans.size > 1 || sniffed.lenCuts.size > 1) {
+                                hasConflict = true;
+                            }
+
+                            eGuid = sniffed.guids.size > 0 ? Array.from(sniffed.guids)[0] : obj.guid;
+                            eType = sniffed.types.size > 0 ? Array.from(sniffed.types)[0] : null;
+                            eProf = sniffed.profs.size > 0 ? Array.from(sniffed.profs)[0] : null;
+                            eLenStd = sniffed.lenStds.size > 0 ? Array.from(sniffed.lenStds)[0] : null;
+                            eLenSpan = sniffed.lenSpans.size > 0 ? Array.from(sniffed.lenSpans)[0] : null;
+                            eLenCut = sniffed.lenCuts.size > 0 ? Array.from(sniffed.lenCuts)[0] : null;
+
                         } else {
                             const getVal = (pset, prop) => {
+                                if(!pset || !prop) return null;
                                 if (pset.toUpperCase() === "ROOT") {
                                     const key = Object.keys(obj).find(k => k.toLowerCase() === prop.toLowerCase());
-                                    return key ? obj[key] : undefined;
+                                    return key ? obj[key] : null;
                                 }
                                 let s = Array.isArray(obj.properties) ? obj.properties.find(p => p.name === pset) : obj.properties[pset];
                                 return Array.isArray(s?.properties || s) ? (s.properties || s).find(p => p.name === prop)?.value : (s?.properties || s)?.[prop];
                             };
-                            elemType = getVal(psType, prType);
-                            profile = getVal(psProf, prProf);
-                            lengthRaw = getVal(psLen, prLen);
-                            guidRaw = obj.guid;
+                            
+                            eGuid = obj.guid;
+                            eType = getVal(psType, prType);
+                            eProf = getVal(psProf, prProf);
+                            
+                            let rawL = getVal(psLen, prLen);
+                            let rawS = getVal(psSpan, prSpan);
+                            let rawC = getVal(psCut, prCut);
+                            
+                            eLenStd = (rawL !== null && !isNaN(parseFloat(rawL))) ? Math.round(parseFloat(rawL)) : null;
+                            eLenSpan = (rawS !== null && !isNaN(parseFloat(rawS))) ? Math.round(parseFloat(rawS)) : null;
+                            eLenCut = (rawC !== null && !isNaN(parseFloat(rawC))) ? Math.round(parseFloat(rawC)) : null;
                         }
-                        
-                        let hasValidLength = lengthRaw !== undefined && lengthRaw !== null && !isNaN(parseFloat(lengthRaw));
-                        let lengthInt = hasValidLength ? Math.round(parseFloat(lengthRaw)) : 0;
-                        let note = "OK", tn = 0;
 
-                        if (!profile) {
+                        // Determine Used Length based on Priority Order
+                        let lenUsed = null;
+                        const availableLens = { 'L': eLenStd, 'S': eLenSpan, 'C': eLenCut };
+                        for (let p of priorityOrder) {
+                            if (availableLens[p] !== null && availableLens[p] !== undefined) {
+                                lenUsed = availableLens[p];
+                                break;
+                            }
+                        }
+
+                        let note = "OK", tn = 0;
+                        let hasValidLength = lenUsed !== null;
+
+                        if (!eProf) {
                             note = "ERR: Missing Profile";
                         } else {
-                            const profileKey = profile.toString().trim().toUpperCase();
+                            const profileKey = eProf.toString().trim().toUpperCase();
                             let kgPerM = weightDatabase[profileKey];
                             
                             if (!kgPerM) {
-                                if (profileKey.startsWith("UB")) {
-                                    const altKey = profileKey.replace(/^UB/, "UKB");
-                                    if (weightDatabase[altKey]) {
-                                        kgPerM = weightDatabase[altKey];
-                                        note = "Alias used (UKB)";
-                                    }
-                                } else if (profileKey.startsWith("UC")) {
-                                    const altKey = profileKey.replace(/^UC/, "UKC");
-                                    if (weightDatabase[altKey]) {
-                                        kgPerM = weightDatabase[altKey];
-                                        note = "Alias used (UKC)";
-                                    }
+                                if (profileKey.startsWith("UB") && weightDatabase[profileKey.replace(/^UB/, "UKB")]) {
+                                    kgPerM = weightDatabase[profileKey.replace(/^UB/, "UKB")];
+                                    note = "Alias used (UKB)";
+                                } else if (profileKey.startsWith("UC") && weightDatabase[profileKey.replace(/^UC/, "UKC")]) {
+                                    kgPerM = weightDatabase[profileKey.replace(/^UC/, "UKC")];
+                                    note = "Alias used (UKC)";
                                 }
                             }
                             
                             if (kgPerM) {
                                 if (hasValidLength) {
-                                    tn = (lengthInt / 1000) * kgPerM / 1000;
+                                    tn = (lenUsed / 1000) * kgPerM / 1000;
                                 } else {
                                     note = "ERR: Missing Length";
                                 }
                             } else {
-                                const manualCalc = getManualWeight(profileKey, lengthInt, hasValidLength);
+                                const manualCalc = getManualWeight(profileKey, lenUsed || 0, hasValidLength);
                                 if (manualCalc) {
                                     tn = manualCalc.weight;
                                     note = manualCalc.note;
-                                    lengthInt = manualCalc.extLen; 
+                                    lenUsed = manualCalc.extLen; 
                                 } else {
-                                    note = hasValidLength ? "ERR: Not in LIS" : "ERR: Missing Length";
+                                    // Profile found in object, but not in LIS or Plate Logic
+                                    note = hasValidLength ? "ERR: Not in LIS" : "ERR: Not in LIS & Missing Length";
                                 }
                             }
                         }
 
+                        if (hasConflict) {
+                            note = (note === "OK") ? "WARN: Conflicting Data Found" : note + " (Conflicts)";
+                        }
+
                         lastFullData.push({
-                            guid: guidRaw || "N/A",
-                            type: elemType || "N/A",
-                            profile: profile || "N/A",
-                            length: lengthInt,
+                            guid: eGuid || "N/A",
+                            type: eType || "N/A",
+                            profile: eProf || "N/A",
+                            lenStd: eLenStd !== null ? eLenStd : "",
+                            lenSpan: eLenSpan !== null ? eLenSpan : "",
+                            lenCut: eLenCut !== null ? eLenCut : "",
+                            lenUsed: lenUsed !== null ? lenUsed : "N/A",
                             tn: tn.toFixed(4),
                             statusNote: note
                         });
@@ -367,7 +418,10 @@
             const fGuid = document.getElementById('filtGuid').value.toLowerCase();
             const fType = document.getElementById('filtType').value.toLowerCase();
             const fProf = document.getElementById('filtProf').value.toLowerCase();
-            const fLen  = document.getElementById('filtLen').value.toLowerCase();
+            const fLen  = document.getElementById('filtLenStd').value.toLowerCase();
+            const fSpan = document.getElementById('filtLenSpan').value.toLowerCase();
+            const fCut  = document.getElementById('filtLenCut').value.toLowerCase();
+            const fUsed = document.getElementById('filtLenUsed').value.toLowerCase();
             const fTn   = document.getElementById('filtTn').value.toLowerCase();
             const fStat = document.getElementById('filtStat').value.toLowerCase();
 
@@ -375,7 +429,10 @@
                 return row.guid.toString().toLowerCase().includes(fGuid) &&
                        row.type.toString().toLowerCase().includes(fType) &&
                        row.profile.toString().toLowerCase().includes(fProf) &&
-                       row.length.toString().toLowerCase().includes(fLen) &&
+                       row.lenStd.toString().toLowerCase().includes(fLen) &&
+                       row.lenSpan.toString().toLowerCase().includes(fSpan) &&
+                       row.lenCut.toString().toLowerCase().includes(fCut) &&
+                       row.lenUsed.toString().toLowerCase().includes(fUsed) &&
                        row.tn.toString().toLowerCase().includes(fTn) &&
                        row.statusNote.toString().toLowerCase().includes(fStat);
             });
@@ -393,11 +450,14 @@
             tbody.innerHTML = "";
             filteredData.forEach(row => {
                 const tr = document.createElement("tr");
-                if (row.statusNote.startsWith("ERR")) tr.className = "row-err";
-                else if (row.statusNote.startsWith("Alias")) tr.className = "row-alias";
+                if (row.statusNote.includes("ERR")) tr.className = "row-err";
+                else if (row.statusNote.includes("WARN")) tr.className = "row-warn";
+                else if (row.statusNote.includes("Alias")) tr.className = "row-alias";
                 else if (row.statusNote.includes("Baseplate") || row.statusNote.includes("Plate Calc")) tr.className = "row-plate";
                 
-                tr.innerHTML = `<td>${row.guid}</td><td>${row.type}</td><td>${row.profile}</td><td>${row.length}</td><td>${row.tn}</td><td>${row.statusNote}</td>`;
+                tr.innerHTML = `<td>${row.guid}</td><td>${row.type}</td><td>${row.profile}</td>
+                                <td>${row.lenStd}</td><td>${row.lenSpan}</td><td>${row.lenCut}</td>
+                                <td class="col-used">${row.lenUsed}</td><td>${row.tn}</td><td>${row.statusNote}</td>`;
                 tbody.appendChild(tr);
             });
             document.getElementById('resultsContainer').style.display = "block";
@@ -409,7 +469,7 @@
             filteredData.sort((a, b) => {
                 let valA = a[column];
                 let valB = b[column];
-                if (!isNaN(valA) && !isNaN(valB)) {
+                if (valA !== "" && valB !== "" && !isNaN(valA) && !isNaN(valB)) {
                     valA = parseFloat(valA);
                     valB = parseFloat(valB);
                 }
@@ -421,9 +481,9 @@
         }
 
         document.getElementById('exportBtn').onclick = function() {
-            let csv = "data:text/csv;charset=utf-8,GUID,Type,Profile,Length_mm,Weight_tn,Status\n";
+            let csv = "data:text/csv;charset=utf-8,GUID,Type,Profile,Length,Span,Cut_Length,Used_mm,Weight_tn,Status\n";
             filteredData.forEach(r => {
-                csv += `${r.guid},${r.type},${r.profile},${r.length},${r.tn},${r.statusNote.replace(/,/g, "")}\n`;
+                csv += `${r.guid},${r.type},${r.profile},${r.lenStd},${r.lenSpan},${r.lenCut},${r.lenUsed},${r.tn},${r.statusNote.replace(/,/g, "")}\n`;
             });
             const link = document.createElement("a");
             link.setAttribute("href", encodeURI(csv));
