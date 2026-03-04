@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Steel Weight Calculator v36</title>
+    <title>Steel Weight Calculator v37</title>
     <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
     <style>
         body { font-family: sans-serif; padding: 12px; background-color: #f4f4f4; font-size: 13px; margin: 0; }
@@ -56,7 +56,7 @@
     </style>
 </head>
 <body>
-    <div class="version-tag">App Version: 36.0 (Layer Extraction)</div>
+    <div class="version-tag">App Version: 37.0 (Smart Length Resolving)</div>
     <h3>Steel Weight Calc</h3>
     
     <label class="input-label">1. Load Tekla .lis file</label>
@@ -120,7 +120,7 @@
         </div>
     </div>
 
-    <button id="calcBtn" disabled>Calculate Weights v36</button>
+    <button id="calcBtn" disabled>Calculate Weights v37</button>
     <div id="status">Please load a .lis file to begin.</div>
 
     <div id="totalBox">
@@ -256,10 +256,10 @@
                             res.genericProfs.add(v);
                         }
 
-                        // 3. Length Sniffing
-                        if (!isNaN(parseFloat(v))) {
+                        // 3. Length Sniffing (Excluding Bolts, Merging Section/Cut)
+                        if (!n.includes("bolt") && !isNaN(parseFloat(v))) {
                             let num = Math.round(parseFloat(v));
-                            if (n.includes("cut length")) res.lenCuts.add(num);
+                            if (n.includes("cut length") || n.includes("section length")) res.lenCuts.add(num);
                             else if (n.includes("span")) res.lenSpans.add(num);
                             else if (n === "length" || n.includes("length")) res.lenStds.add(num);
                         }
@@ -327,10 +327,10 @@
                             let profSetToUse = sniffed.validProfs.size > 0 ? sniffed.validProfs : sniffed.genericProfs;
                             eProf = profSetToUse.size > 0 ? Array.from(profSetToUse)[0] : null;
 
+                            // Conflict checks (omitting Cut Lengths as we auto-resolve those)
                             if (profSetToUse.size > 1) conflictDetails.push(`Prof: [${Array.from(profSetToUse).join(" vs ")}]`);
                             if (sniffed.lenStds.size > 1) conflictDetails.push(`Len: [${Array.from(sniffed.lenStds).join(" vs ")}]`);
                             if (sniffed.lenSpans.size > 1) conflictDetails.push(`Span: [${Array.from(sniffed.lenSpans).join(" vs ")}]`);
-                            if (sniffed.lenCuts.size > 1) conflictDetails.push(`Cut: [${Array.from(sniffed.lenCuts).join(" vs ")}]`);
 
                             if (conflictDetails.length > 0) hasConflict = true;
 
@@ -339,7 +339,9 @@
                             eLayer = sniffed.layers.size > 0 ? Array.from(sniffed.layers)[0] : null;
                             eLenStd = sniffed.lenStds.size > 0 ? Array.from(sniffed.lenStds)[0] : null;
                             eLenSpan = sniffed.lenSpans.size > 0 ? Array.from(sniffed.lenSpans)[0] : null;
-                            eLenCut = sniffed.lenCuts.size > 0 ? Array.from(sniffed.lenCuts)[0] : null;
+                            
+                            // Auto-resolve Cut/Section lengths by choosing the shortest value
+                            eLenCut = sniffed.lenCuts.size > 0 ? Math.min(...Array.from(sniffed.lenCuts)) : null;
 
                         } else {
                             const getVal = (pset, prop) => {
@@ -515,7 +517,6 @@
         document.getElementById('exportBtn').onclick = function() {
             let csv = "data:text/csv;charset=utf-8,GUID,Type,Layer,Profile,Length,Span,Cut_Length,Used_mm,Weight_tn,Status\n";
             filteredData.forEach(r => {
-                // Remove commas from string properties to protect CSV formatting
                 const safeGuid = r.guid.toString().replace(/,/g, "");
                 const safeType = r.type.toString().replace(/,/g, "");
                 const safeLayer = r.layer.toString().replace(/,/g, "");
