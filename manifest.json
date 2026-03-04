@@ -1,7 +1,7 @@
 {
   "title": "Steel Weight Calculator",
   "icon": "https://img.icons8.com/color/48/000000/weight-kg.png",
-  "description": "Stable Data Mode: Now supports 3D Baseplate string parsing (e.g., BP6 PL495*350*30).",
-  "url": "https://perazmak.github.io/trimble-weight-calculator/index.html?v=28",
+  "description": "Stable Data Mode: Includes live table filtering, Type extraction, UB/UC fallbacks, and plate logic.",
+  "url": "https://perazmak.github.io/trimble-weight-calculator/index.html?v=30",
   "enabled": true
 }
