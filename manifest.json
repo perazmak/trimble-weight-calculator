@@ -1,7 +1,7 @@
 {
   "title": "Steel Weight Calculator",
   "icon": "https://img.icons8.com/color/48/000000/weight-kg.png",
-  "description": "v33: Advanced Auto Sniffer (36-char GUIDs, non-LIS profiles), Multi-Length extraction (Length/Span/Cut), and Priority Engine.",
-  "url": "https://perazmak.github.io/trimble-weight-calculator/index.html?v=33",
+  "description": "v36: Added CAD/BIM Layer extraction, filtering, and Auto Sniffing support.",
+  "url": "https://perazmak.github.io/trimble-weight-calculator/index.html?v=36",
   "enabled": true
 }
