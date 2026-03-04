@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Steel Weight Calculator v27</title>
+    <title>Steel Weight Calculator v28</title>
     <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
     <style>
         body { font-family: sans-serif; padding: 12px; background-color: #f4f4f4; font-size: 13px; }
@@ -29,10 +29,11 @@
         tr:hover { background-color: #f9f9f9; }
         .row-err { color: #d8000c; font-weight: bold; }
         .row-alias { color: #f39c12; font-style: italic; }
+        .row-plate { color: #005f9e; font-style: italic; }
     </style>
 </head>
 <body>
-    <div class="version-tag">App Version: 27.0 (Type Defaults Updated)</div>
+    <div class="version-tag">App Version: 28.0 (3D Baseplates)</div>
     <h3>Steel Weight Calc</h3>
     
     <label>1. Load Tekla .lis file</label>
@@ -62,7 +63,7 @@
         <input type="text" id="propLength" value="Length">
     </div>
 
-    <button id="calcBtn" disabled>Calculate Weights v27</button>
+    <button id="calcBtn" disabled>Calculate Weights v28</button>
     <div id="status">Please load a .lis file to begin.</div>
 
     <div id="totalBox">
@@ -93,13 +94,11 @@
         let lastFullData = [];
         let sortDirection = {};
 
-        // 1. Initialize API
         TrimbleConnectWorkspace.connect(window.parent).then(api => {
             tcAPI = api;
             if (Object.keys(weightDatabase).length > 0) document.getElementById('calcBtn').disabled = false;
         });
 
-        // 2. Load LIS File
         document.getElementById('dbFile').addEventListener('change', function(e) {
             const file = e.target.files[0];
             const reader = new FileReader();
@@ -118,19 +117,36 @@
             reader.readAsText(file);
         });
 
-        // Plate Logic Helper
-        function getPlateWeight(profileStr, lengthMm) {
-            const plateRegex = /(?:FLT|PLT|PL|FL)\s*(\d+(?:\.\d+)?)[x\*](\d+(?:\.\d+)?)/i;
-            const match = profileStr.match(plateRegex);
-            if (match) {
-                const thickness = parseFloat(match[1]);
-                const width = parseFloat(match[2]);
-                return thickness * width * lengthMm * 0.00000000785;
+        function getManualWeight(profileStr, lengthMm, hasValidLength) {
+            // 1. Check for 3-Dimension Baseplate (e.g., BP6 PL495*350*30)
+            const regex3D = /(?:PL|PLT|FL|FLT)\s*(\d+(?:\.\d+)?)[x\*](\d+(?:\.\d+)?)[x\*](\d+(?:\.\d+)?)/i;
+            const match3D = profileStr.match(regex3D);
+            if (match3D) {
+                const d1 = parseFloat(match3D[1]);
+                const d2 = parseFloat(match3D[2]);
+                const d3 = parseFloat(match3D[3]);
+                return {
+                    weight: d1 * d2 * d3 * 0.00000000785,
+                    note: "Baseplate (3D String)",
+                    extLen: Math.round(Math.max(d1, d2, d3)) // Show longest dimension in the length column for context
+                };
+            }
+
+            // 2. Check for standard 2-Dimension Plate (e.g., PL 10x200)
+            const regex2D = /(?:FLT|PLT|PL|FL)\s*(\d+(?:\.\d+)?)[x\*](\d+(?:\.\d+)?)/i;
+            const match2D = profileStr.match(regex2D);
+            if (match2D && hasValidLength) {
+                const t = parseFloat(match2D[1]);
+                const w = parseFloat(match2D[2]);
+                return {
+                    weight: t * w * lengthMm * 0.00000000785,
+                    note: "Plate Calc (2D)",
+                    extLen: lengthMm
+                };
             }
             return null;
         }
 
-        // 3. Main Calculation
         document.getElementById('calcBtn').onclick = async function() {
             const statusEl = document.getElementById('status');
             const totalValEl = document.getElementById('totalVal');
@@ -170,11 +186,12 @@
                         let elemType = getVal(psType, prType);
                         let profile = getVal(psProf, prProf);
                         let lengthRaw = getVal(psLen, prLen);
-                        let note = "OK", tn = 0, lengthInt = Math.round(parseFloat(lengthRaw) || 0);
+                        
+                        let hasValidLength = lengthRaw !== undefined && lengthRaw !== null && !isNaN(parseFloat(lengthRaw));
+                        let lengthInt = hasValidLength ? Math.round(parseFloat(lengthRaw)) : 0;
+                        let note = "OK", tn = 0;
 
-                        if (!lengthRaw || isNaN(parseFloat(lengthRaw))) {
-                            note = "ERR: Missing Length";
-                        } else if (!profile) {
+                        if (!profile) {
                             note = "ERR: Missing Profile";
                         } else {
                             const profileKey = profile.toString().trim().toUpperCase();
@@ -198,14 +215,19 @@
                             }
                             
                             if (kgPerM) {
-                                tn = (lengthInt / 1000) * kgPerM / 1000;
-                            } else {
-                                const pWt = getPlateWeight(profileKey, lengthInt);
-                                if (pWt) {
-                                    tn = pWt;
-                                    note = "Plate Calc (Not in LIS)";
+                                if (hasValidLength) {
+                                    tn = (lengthInt / 1000) * kgPerM / 1000;
                                 } else {
-                                    note = "ERR: Not in LIS";
+                                    note = "ERR: Missing Length";
+                                }
+                            } else {
+                                const manualCalc = getManualWeight(profileKey, lengthInt, hasValidLength);
+                                if (manualCalc) {
+                                    tn = manualCalc.weight;
+                                    note = manualCalc.note;
+                                    lengthInt = manualCalc.extLen; // Fills in the missing mm column in the UI
+                                } else {
+                                    note = hasValidLength ? "ERR: Not in LIS" : "ERR: Missing Length";
                                 }
                             }
                         }
@@ -238,6 +260,7 @@
                 const tr = document.createElement("tr");
                 if (row.statusNote.startsWith("ERR")) tr.className = "row-err";
                 else if (row.statusNote.startsWith("Alias")) tr.className = "row-alias";
+                else if (row.statusNote.includes("Baseplate") || row.statusNote.includes("Plate Calc")) tr.className = "row-plate";
                 
                 tr.innerHTML = `<td>${row.guid}</td><td>${row.type}</td><td>${row.profile}</td><td>${row.length}</td><td>${row.tn}</td><td>${row.statusNote}</td>`;
                 tbody.appendChild(tr);
