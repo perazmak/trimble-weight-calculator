@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Steel Weight Calculator v28</title>
+    <title>Steel Weight Calculator v30</title>
     <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
     <style>
         body { font-family: sans-serif; padding: 12px; background-color: #f4f4f4; font-size: 13px; }
@@ -11,7 +11,7 @@
         .section-box { background: #fff; border: 1px solid #ddd; padding: 10px; border-radius: 4px; margin-bottom: 10px; }
         .section-title { font-weight: bold; margin-bottom: 8px; color: #005f9e; font-size: 11px; text-transform: uppercase; border-bottom: 1px solid #eee; padding-bottom: 3px; }
         label { display: block; font-weight: 600; margin-bottom: 2px; font-size: 11px; color: #555; }
-        input { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; margin-bottom: 10px; font-size: 12px; }
+        input[type="text"], input[type="file"] { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; margin-bottom: 10px; font-size: 12px; }
         
         button { color: white; border: none; padding: 12px; border-radius: 4px; cursor: pointer; font-weight: bold; width: 100%; }
         #calcBtn { background-color: #005f9e; }
@@ -21,7 +21,9 @@
         #totalBox { background-color: #333; color: white; padding: 12px; border-radius: 4px; margin-top: 10px; display: none; text-align: center; }
         #totalBox span { font-size: 20px; display: block; font-weight: bold; color: #00ccff; }
 
-        .table-container { max-height: 300px; overflow-y: auto; display: none; margin-top: 15px; border: 1px solid #ccc; background: #fff; }
+        #resultsContainer { display: none; margin-top: 15px; }
+        #filterInput { border: 2px solid #005f9e; margin-bottom: 10px; font-weight: bold; }
+        .table-wrapper { max-height: 300px; overflow-y: auto; border: 1px solid #ccc; background: #fff; }
         table { width: 100%; border-collapse: collapse; font-size: 11px; }
         th, td { border: 1px solid #eee; padding: 8px; text-align: left; }
         th { background-color: #005f9e; color: white; position: sticky; top: 0; cursor: pointer; user-select: none; }
@@ -33,7 +35,7 @@
     </style>
 </head>
 <body>
-    <div class="version-tag">App Version: 28.0 (3D Baseplates)</div>
+    <div class="version-tag">App Version: 30.0 (Filterable Data)</div>
     <h3>Steel Weight Calc</h3>
     
     <label>1. Load Tekla .lis file</label>
@@ -41,7 +43,7 @@
 
     <div class="section-box">
         <div class="section-title">TYPE PROPERTY LOCATION</div>
-        <label>Tab Name (Set)</label>
+        <label>Tab Name (Set or type ROOT)</label>
         <input type="text" id="psetType" value="ReferenceObject">
         <label>Property Name</label>
         <input type="text" id="propType" value="Common Type">
@@ -49,7 +51,7 @@
 
     <div class="section-box">
         <div class="section-title">PROFILE PROPERTY LOCATION</div>
-        <label>Tab Name (Set)</label>
+        <label>Tab Name (Set or type ROOT)</label>
         <input type="text" id="psetProfile" value="Pset_QuantityTakeOff">
         <label>Property Name</label>
         <input type="text" id="propProfile" value="Reference">
@@ -57,34 +59,37 @@
 
     <div class="section-box">
         <div class="section-title">LENGTH PROPERTY LOCATION</div>
-        <label>Tab Name (Set)</label>
+        <label>Tab Name (Set or type ROOT)</label>
         <input type="text" id="psetLength" value="Dimensions">
         <label>Property Name (mm)</label>
         <input type="text" id="propLength" value="Length">
     </div>
 
-    <button id="calcBtn" disabled>Calculate Weights v28</button>
+    <button id="calcBtn" disabled>Calculate Weights v30</button>
     <div id="status">Please load a .lis file to begin.</div>
 
     <div id="totalBox">
-        TOTAL SELECTION WEIGHT
+        TOTAL WEIGHT
         <span id="totalVal">0.0000 tn</span>
     </div>
 
-    <div class="table-container" id="resultsContainer">
-        <table id="resultsTable">
-            <thead>
-                <tr>
-                    <th onclick="sortTable('guid')">GUID ↕</th>
-                    <th onclick="sortTable('type')">Type ↕</th>
-                    <th onclick="sortTable('profile')">Profile ↕</th>
-                    <th onclick="sortTable('length')">mm ↕</th>
-                    <th onclick="sortTable('tn')">Tn ↕</th>
-                    <th onclick="sortTable('statusNote')">Status ↕</th>
-                </tr>
-            </thead>
-            <tbody></tbody>
-        </table>
+    <div id="resultsContainer">
+        <input type="text" id="filterInput" placeholder="Filter by Profile, Type, or Status (e.g. ERR, UB, Plate)...">
+        <div class="table-wrapper">
+            <table id="resultsTable">
+                <thead>
+                    <tr>
+                        <th onclick="sortTable('guid')">GUID ↕</th>
+                        <th onclick="sortTable('type')">Type ↕</th>
+                        <th onclick="sortTable('profile')">Profile ↕</th>
+                        <th onclick="sortTable('length')">mm ↕</th>
+                        <th onclick="sortTable('tn')">Tn ↕</th>
+                        <th onclick="sortTable('statusNote')">Status ↕</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
         <button id="exportBtn">Export Data to CSV</button>
     </div>
 
@@ -92,6 +97,7 @@
         let tcAPI;
         let weightDatabase = {};
         let lastFullData = [];
+        let filteredData = [];
         let sortDirection = {};
 
         TrimbleConnectWorkspace.connect(window.parent).then(api => {
@@ -118,7 +124,6 @@
         });
 
         function getManualWeight(profileStr, lengthMm, hasValidLength) {
-            // 1. Check for 3-Dimension Baseplate (e.g., BP6 PL495*350*30)
             const regex3D = /(?:PL|PLT|FL|FLT)\s*(\d+(?:\.\d+)?)[x\*](\d+(?:\.\d+)?)[x\*](\d+(?:\.\d+)?)/i;
             const match3D = profileStr.match(regex3D);
             if (match3D) {
@@ -128,11 +133,10 @@
                 return {
                     weight: d1 * d2 * d3 * 0.00000000785,
                     note: "Baseplate (3D String)",
-                    extLen: Math.round(Math.max(d1, d2, d3)) // Show longest dimension in the length column for context
+                    extLen: Math.round(Math.max(d1, d2, d3)) 
                 };
             }
 
-            // 2. Check for standard 2-Dimension Plate (e.g., PL 10x200)
             const regex2D = /(?:FLT|PLT|PL|FL)\s*(\d+(?:\.\d+)?)[x\*](\d+(?:\.\d+)?)/i;
             const match2D = profileStr.match(regex2D);
             if (match2D && hasValidLength) {
@@ -164,7 +168,7 @@
             const prLen = document.getElementById('propLength').value.trim();
 
             lastFullData = [];
-            let totalTonnage = 0;
+            filteredData = [];
 
             try {
                 const selection = await tcAPI.viewer.getSelection();
@@ -179,6 +183,10 @@
                     
                     for (const obj of props) {
                         const getVal = (pset, prop) => {
+                            if (pset.toUpperCase() === "ROOT") {
+                                const key = Object.keys(obj).find(k => k.toLowerCase() === prop.toLowerCase());
+                                return key ? obj[key] : undefined;
+                            }
                             let s = Array.isArray(obj.properties) ? obj.properties.find(p => p.name === pset) : obj.properties[pset];
                             return Array.isArray(s?.properties || s) ? (s.properties || s).find(p => p.name === prop)?.value : (s?.properties || s)?.[prop];
                         };
@@ -197,7 +205,6 @@
                             const profileKey = profile.toString().trim().toUpperCase();
                             let kgPerM = weightDatabase[profileKey];
                             
-                            // UB to UKB / UC to UKC Fallback Logic
                             if (!kgPerM) {
                                 if (profileKey.startsWith("UB")) {
                                     const altKey = profileKey.replace(/^UB/, "UKB");
@@ -225,14 +232,13 @@
                                 if (manualCalc) {
                                     tn = manualCalc.weight;
                                     note = manualCalc.note;
-                                    lengthInt = manualCalc.extLen; // Fills in the missing mm column in the UI
+                                    lengthInt = manualCalc.extLen; 
                                 } else {
                                     note = hasValidLength ? "ERR: Not in LIS" : "ERR: Missing Length";
                                 }
                             }
                         }
 
-                        totalTonnage += tn;
                         lastFullData.push({
                             guid: obj.guid || "N/A",
                             type: elemType || "N/A",
@@ -244,8 +250,11 @@
                     }
                 }
 
+                document.getElementById('filterInput').value = ""; // Clear filter on new calc
+                filteredData = [...lastFullData];
+                
                 renderTable();
-                totalValEl.innerText = totalTonnage.toFixed(4) + " tn";
+                updateTotalWeight();
                 statusEl.innerText = `Calculated ${lastFullData.length} objects.`;
             } catch (err) {
                 alert("Error: " + err.message);
@@ -253,10 +262,27 @@
             }
         };
 
+        document.getElementById('filterInput').addEventListener('input', function(e) {
+            const term = e.target.value.toLowerCase();
+            filteredData = lastFullData.filter(row => {
+                return row.guid.toString().toLowerCase().includes(term) ||
+                       row.type.toString().toLowerCase().includes(term) ||
+                       row.profile.toString().toLowerCase().includes(term) ||
+                       row.statusNote.toString().toLowerCase().includes(term);
+            });
+            renderTable();
+            updateTotalWeight();
+        });
+
+        function updateTotalWeight() {
+            let total = filteredData.reduce((sum, row) => sum + parseFloat(row.tn), 0);
+            document.getElementById('totalVal').innerText = total.toFixed(4) + " tn";
+        }
+
         function renderTable() {
             const tbody = document.querySelector("#resultsTable tbody");
             tbody.innerHTML = "";
-            lastFullData.forEach(row => {
+            filteredData.forEach(row => {
                 const tr = document.createElement("tr");
                 if (row.statusNote.startsWith("ERR")) tr.className = "row-err";
                 else if (row.statusNote.startsWith("Alias")) tr.className = "row-alias";
@@ -271,7 +297,7 @@
 
         function sortTable(column) {
             sortDirection[column] = !sortDirection[column];
-            lastFullData.sort((a, b) => {
+            filteredData.sort((a, b) => {
                 let valA = a[column];
                 let valB = b[column];
                 if (!isNaN(valA) && !isNaN(valB)) {
@@ -287,7 +313,7 @@
 
         document.getElementById('exportBtn').onclick = function() {
             let csv = "data:text/csv;charset=utf-8,GUID,Type,Profile,Length_mm,Weight_tn,Status\n";
-            lastFullData.forEach(r => {
+            filteredData.forEach(r => {
                 csv += `${r.guid},${r.type},${r.profile},${r.length},${r.tn},${r.statusNote.replace(/,/g, "")}\n`;
             });
             const link = document.createElement("a");
