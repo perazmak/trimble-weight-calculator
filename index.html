@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Steel Weight Calculator v45</title>
+    <title>Steel Weight Calculator v46</title>
     <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
     <style>
         body { font-family: sans-serif; padding: 12px; background-color: #f4f4f4; font-size: 13px; margin: 0; }
@@ -28,9 +28,10 @@
         .grid-3col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
         #userDefinedSettings { display: none; }
 
-        button { color: white; border: none; padding: 12px; border-radius: 4px; cursor: pointer; font-weight: bold; width: 100%; }
+        button { color: white; border: none; padding: 12px; border-radius: 4px; cursor: pointer; font-weight: bold; width: 100%; margin-bottom: 10px; }
         #calcBtn { background-color: #005f9e; }
-        #exportBtn { background-color: #28a745; display: none; margin-top: 10px; }
+        #debugBtn { background-color: #6c757d; display: none; }
+        #exportBtn { background-color: #28a745; display: none; }
         
         #status { margin-top: 10px; padding: 8px; background: #fff; border-radius: 4px; border: 1px solid #ddd; font-size: 12px; min-height: 20px; font-weight: bold; color: #333; }
         #totalBox { background-color: #333; color: white; padding: 12px; border-radius: 4px; margin-top: 10px; display: none; text-align: center; }
@@ -56,7 +57,7 @@
     </style>
 </head>
 <body>
-    <div class="version-tag">App Version: 45.0 (Direct UI Mapping)</div>
+    <div class="version-tag">App Version: 46.0 (Core Extractor & API Debug)</div>
     <h3>Steel Weight Calc</h3>
     
     <label class="input-label">1. Load Tekla .lis file</label>
@@ -120,7 +121,8 @@
         </div>
     </div>
 
-    <button id="calcBtn" disabled>Calculate Weights v45</button>
+    <button id="calcBtn" disabled>Calculate Weights v46</button>
+    <button id="debugBtn">🛠️ DEBUG: Download Raw API Data</button>
     <div id="status">Please load a .lis file to begin.</div>
 
     <div id="totalBox">
@@ -172,6 +174,7 @@
 
         TrimbleConnectWorkspace.connect(window.parent).then(api => {
             tcAPI = api;
+            document.getElementById('debugBtn').style.display = "block";
             if (Object.keys(weightDatabase).length > 0) document.getElementById('calcBtn').disabled = false;
         }).catch(err => console.warn("TC API Notice:", err));
 
@@ -222,6 +225,39 @@
             }
         });
 
+        // --- NEW: RAW API DEBUG EXPORTER ---
+        document.getElementById('debugBtn').onclick = async function() {
+            try {
+                if (!tcAPI) return alert("API not ready.");
+                const sel = await tcAPI.viewer.getSelection();
+                if (!sel || sel.length === 0) return alert("Please select at least one item in the 3D viewer first.");
+                
+                const rIds = sel[0].objectRuntimeIds || [sel[0].objectId];
+                const props = await tcAPI.viewer.getObjectProperties(sel[0].modelId, rIds);
+                
+                let coreData = "Failed to fetch core objects";
+                try {
+                    coreData = await tcAPI.viewer.getObjects(sel[0].modelId, rIds);
+                } catch(e) { coreData = e.message; }
+
+                const debugPayload = {
+                    instructions: "Search this file for your GUID. If it's not here, Trimble Connect is blocking it from the API.",
+                    selection_event: sel[0],
+                    getObjectProperties_API: props,
+                    getObjects_API: coreData
+                };
+
+                const blob = new Blob([JSON.stringify(debugPayload, null, 2)], {type: "application/json"});
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement("a");
+                link.href = url;
+                link.download = "trimble_debug_data.json";
+                link.click();
+            } catch (err) {
+                alert("Debug Tool Error: " + err.message);
+            }
+        };
+
         function getManualWeight(profileStr, lengthMm, hasValidLength) {
             const regex3D = /(?:PL|PLT|FL|FLT)\s*(\d+(?:\.\d+)?)[x\*](\d+(?:\.\d+)?)[x\*](\d+(?:\.\d+)?)/i;
             const match3D = profileStr.match(regex3D);
@@ -234,27 +270,9 @@
             return null;
         }
 
-        // --- NEW: DIRECT TRIMBLE UI MAPPING ---
         function extractTrimbleGuid(obj) {
             if (!obj || !obj.properties) return null;
             let propsArray = Array.isArray(obj.properties) ? obj.properties : Object.values(obj.properties);
-            
-            // 1. Explicitly target "ReferenceObject", "Identity Data", or "Product" tabs exactly as shown in UI
-            for (let pset of propsArray) {
-                let psetName = (pset.name || "").toString().replace(/\s/g, "").toLowerCase();
-                if (psetName === "referenceobject" || psetName === "identitydata" || psetName === "product") {
-                    let innerProps = Array.isArray(pset.properties) ? pset.properties : Object.values(pset.properties || {});
-                    for (let prop of innerProps) {
-                        let propName = (prop.name || "").toString().toLowerCase();
-                        // Look for exact matches to what you see on screen
-                        if (propName.includes("guid") || propName.includes("globalid")) {
-                            if (prop.value && prop.value.toString().trim().length > 10) return prop.value.toString().trim();
-                        }
-                    }
-                }
-            }
-            
-            // 2. Global search for standard UI names across ALL tabs if ReferenceObject fails
             for (let pset of propsArray) {
                 let innerProps = Array.isArray(pset.properties) ? pset.properties : Object.values(pset.properties || {});
                 for (let prop of innerProps) {
@@ -267,15 +285,12 @@
             return null;
         }
 
-        // Heavy compute fallback
         function extremeGuidXRay(obj) {
             try {
                 let strDump = JSON.stringify(obj);
                 if (!strDump) return null;
-                
                 let uMatch = strDump.match(/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/);
                 if (uMatch) return uMatch[0];
-                
                 let ifcRegex = /(?:"|')([A-Za-z0-9_\$]{22})(?:"|')/g;
                 let iMatch;
                 while ((iMatch = ifcRegex.exec(strDump)) !== null) {
@@ -287,22 +302,12 @@
         }
 
         function sniffProperties(obj) {
-            let res = { 
-                types: new Set(), 
-                layers: new Set(),
-                validProfs: new Set(), 
-                genericProfs: new Set(), 
-                lenStds: new Set(), 
-                lenSpans: new Set(), 
-                lenCuts: new Set() 
-            };
-
+            let res = { types: new Set(), layers: new Set(), validProfs: new Set(), genericProfs: new Set(), lenStds: new Set(), lenSpans: new Set(), lenCuts: new Set() };
             if (obj.type) res.types.add(obj.type);
             if (obj.objectType) res.types.add(obj.objectType);
 
             function traverse(o, lastKey) {
                 if (o === null || o === undefined) return;
-
                 if (typeof o === 'string' || typeof o === 'number') {
                     let vStr = o.toString().trim().toUpperCase();
                     let vTrim = o.toString().trim();
@@ -329,7 +334,6 @@
                             else if (n.includes("span")) res.lenSpans.add(num);
                             else if (n === "length" || n.includes("length")) res.lenStds.add(num);
                         }
-
                     } else if (typeof o === 'number') {
                         if (!n.includes("bolt")) {
                             let num = Math.round(o);
@@ -345,13 +349,10 @@
                         traverse(o.value, o.name.toString());
                         if (o.properties) traverse(o.properties, o.name.toString());
                     } else {
-                        for (let key in o) {
-                            traverse(o[key], key);
-                        }
+                        for (let key in o) { traverse(o[key], key); }
                     }
                 }
             }
-
             traverse(obj, "");
             return res;
         }
@@ -385,7 +386,7 @@
             const prCut = document.getElementById('propCut').value.trim();
 
             try {
-                if (!tcAPI) throw new Error("Trimble Connect API not fully initialized yet. Try again in a moment.");
+                if (!tcAPI) throw new Error("Trimble Connect API not fully initialized yet.");
                 
                 const selection = await tcAPI.viewer.getSelection();
                 if (!selection || selection.length === 0) {
@@ -398,35 +399,30 @@
                 for (const sel of selection) {
                     const rIds = sel.objectRuntimeIds || [sel.objectId];
                     
-                    let selectionGuidMap = {};
-                    let hiddenExternalIds = sel.objectIds || sel.externalIds || sel.guids || sel.globalIds;
-                    if (Array.isArray(hiddenExternalIds) && hiddenExternalIds.length === rIds.length) {
-                        rIds.forEach((rid, index) => selectionGuidMap[rid] = hiddenExternalIds[index]);
-                    } else if (typeof sel.objectId === 'string') {
-                        selectionGuidMap[rIds[0]] = sel.objectId; 
-                    }
-
                     const props = await tcAPI.viewer.getObjectProperties(sel.modelId, rIds);
+                    
+                    // --- THE CORE API FIX ---
+                    let coreObjs = [];
+                    try {
+                        coreObjs = await tcAPI.viewer.getObjects(sel.modelId, rIds);
+                    } catch (e) { console.warn("Core object fetch skipped."); }
                     
                     for (const obj of props) {
                         let eGuid, eType, eLayer, eProf, eLenStd, eLenSpan, eLenCut;
                         let hasConflict = false;
                         let conflictDetails = [];
 
-                        // 1. Direct UI Mapping (Looks exactly where you told me to look)
-                        let exactUiGuid = extractTrimbleGuid(obj);
-                        
-                        // 2. Selection Map & Core Object (Background API checks)
-                        let hijackedGuid = selectionGuidMap[obj.id];
-                        let objCoreGuid = obj.externalId || obj.globalId || obj.guid;
-                        
-                        eGuid = exactUiGuid || hijackedGuid || objCoreGuid;
+                        // Inject externalId from Core API if it exists
+                        const cObj = coreObjs && Array.isArray(coreObjs) ? coreObjs.find(c => c.id === obj.id) : null;
+                        let coreGuid = cObj ? cObj.externalId : null;
 
-                        // 3. Lazy Extreme X-Ray (Only if standard methods fail)
-                        if (!eGuid) { eGuid = extremeGuidXRay(obj); }
+                        let exactUiGuid = extractTrimbleGuid(obj);
+                        let jsonXrayGuid = null;
                         
-                        // 4. Absolute fallback
-                        eGuid = eGuid || `ID:${obj.id}`;
+                        eGuid = coreGuid || exactUiGuid;
+                        if (!eGuid) { jsonXrayGuid = extremeGuidXRay(obj); }
+                        
+                        eGuid = eGuid || jsonXrayGuid || `ID:${obj.id}`;
 
                         if (isAutoMode) {
                             const sniffed = sniffProperties(obj);
