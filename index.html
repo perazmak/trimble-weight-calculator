@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Steel Weight Calculator v47</title>
+    <title>Steel Weight Calculator v48</title>
     <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
     <style>
         body { font-family: sans-serif; padding: 12px; background-color: #f4f4f4; font-size: 13px; margin: 0; }
@@ -57,7 +57,7 @@
     </style>
 </head>
 <body>
-    <div class="version-tag">App Version: 47.0 (BigInt Patch)</div>
+    <div class="version-tag">App Version: 48.0 (Revit Tag Fallback)</div>
     <h3>Steel Weight Calc</h3>
     
     <label class="input-label">1. Load Tekla .lis file</label>
@@ -121,7 +121,7 @@
         </div>
     </div>
 
-    <button id="calcBtn" disabled>Calculate Weights v47</button>
+    <button id="calcBtn" disabled>Calculate Weights v48</button>
     <button id="debugBtn">🛠️ DEBUG: Download Raw API Data</button>
     <div id="status">Please load a .lis file to begin.</div>
 
@@ -172,7 +172,6 @@
         let filteredData = [];
         let sortDirection = {};
 
-        // BIGINT Replacer Function to safely stringify Trimble APIs
         const bigIntReplacer = (key, value) => typeof value === 'bigint' ? value.toString() : value;
 
         TrimbleConnectWorkspace.connect(window.parent).then(api => {
@@ -228,7 +227,6 @@
             }
         });
 
-        // DEBUG EXPORTER WITH BIGINT FIX
         document.getElementById('debugBtn').onclick = async function() {
             try {
                 if (!tcAPI) return alert("API not ready.");
@@ -250,7 +248,6 @@
                     getObjects_API: coreData
                 };
 
-                // Added bigIntReplacer here to prevent debug button crash
                 const blob = new Blob([JSON.stringify(debugPayload, bigIntReplacer, 2)], {type: "application/json"});
                 const url = URL.createObjectURL(blob);
                 const link = document.createElement("a");
@@ -289,30 +286,34 @@
             return null;
         }
 
-        // EXTREME X-RAY WITH BIGINT FIX
         function extremeGuidXRay(obj) {
             try {
-                // Added bigIntReplacer here to prevent silent crashes
                 let strDump = JSON.stringify(obj, bigIntReplacer);
                 if (!strDump) return null;
-                
                 let uMatch = strDump.match(/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/);
                 if (uMatch) return uMatch[0];
-                
                 let ifcRegex = /(?:"|')([A-Za-z0-9_\$]{22})(?:"|')/g;
                 let iMatch;
                 while ((iMatch = ifcRegex.exec(strDump)) !== null) {
                     let g = iMatch[1];
                     if (g.toUpperCase() !== "WEIGHT_PER_UNIT_LENGTH" && g.toUpperCase() !== "PRODUCT_REVISION_LEVEL") return g;
                 }
-            } catch(e) {
-                console.warn("X-Ray encountered an un-stringifiable object", e);
-            }
+            } catch(e) {}
             return null;
         }
 
         function sniffProperties(obj) {
-            let res = { types: new Set(), layers: new Set(), validProfs: new Set(), genericProfs: new Set(), lenStds: new Set(), lenSpans: new Set(), lenCuts: new Set() };
+            let res = { 
+                types: new Set(), 
+                layers: new Set(), 
+                validProfs: new Set(), 
+                genericProfs: new Set(), 
+                lenStds: new Set(), 
+                lenSpans: new Set(), 
+                lenCuts: new Set(),
+                fallbackGuids: new Set() // New set to capture Revit Element IDs/Tags
+            };
+            
             if (obj.type) res.types.add(obj.type);
             if (obj.objectType) res.types.add(obj.objectType);
 
@@ -322,6 +323,11 @@
                     let vStr = o.toString().trim().toUpperCase();
                     let vTrim = o.toString().trim();
                     let n = (lastKey || "").toLowerCase();
+
+                    // Capture fallback architectural tracking IDs
+                    if (n === "tag" || n === "type id" || n === "mark" || n === "cobie.component.name") {
+                        if (vTrim.length > 0) res.fallbackGuids.add(vTrim);
+                    }
 
                     if (typeof o === 'string') {
                         let isExactMatch = weightDatabase[vStr];
@@ -430,7 +436,7 @@
                         eGuid = coreGuid || exactUiGuid;
                         if (!eGuid) { jsonXrayGuid = extremeGuidXRay(obj); }
                         
-                        eGuid = eGuid || jsonXrayGuid || `ID:${obj.id}`;
+                        let sniffedFallbackGuid = null;
 
                         if (isAutoMode) {
                             const sniffed = sniffProperties(obj);
@@ -449,6 +455,11 @@
                             eLenStd = sniffed.lenStds.size > 0 ? Array.from(sniffed.lenStds)[0] : null;
                             eLenSpan = sniffed.lenSpans.size > 0 ? Array.from(sniffed.lenSpans)[0] : null;
                             eLenCut = sniffed.lenCuts.size > 0 ? Math.min(...Array.from(sniffed.lenCuts)) : null;
+                            
+                            // Capture the fallback tag if it exists
+                            if (sniffed.fallbackGuids.size > 0) {
+                                sniffedFallbackGuid = `Tag:${Array.from(sniffed.fallbackGuids)[0]}`;
+                            }
 
                         } else {
                             const getVal = (pset, prop) => {
@@ -473,6 +484,9 @@
                             eLenSpan = (rawS !== null && !isNaN(parseFloat(rawS))) ? Math.round(parseFloat(rawS)) : null;
                             eLenCut = (rawC !== null && !isNaN(parseFloat(rawC))) ? Math.round(parseFloat(rawC)) : null;
                         }
+
+                        // Final GUID resolution chain (includes the new Revit Tag fallback)
+                        eGuid = eGuid || jsonXrayGuid || sniffedFallbackGuid || `ID:${obj.id}`;
 
                         let lenUsed = null;
                         const availableLens = { 'L': eLenStd, 'S': eLenSpan, 'C': eLenCut };
