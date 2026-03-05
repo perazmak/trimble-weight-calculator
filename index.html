@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Steel Weight Calculator v42</title>
+    <title>Steel Weight Calculator v44</title>
     <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
     <style>
         body { font-family: sans-serif; padding: 12px; background-color: #f4f4f4; font-size: 13px; margin: 0; }
@@ -56,7 +56,7 @@
     </style>
 </head>
 <body>
-    <div class="version-tag">App Version: 42.0 (File Loader Fix)</div>
+    <div class="version-tag">App Version: 44.0 (Lazy X-Ray Optimization)</div>
     <h3>Steel Weight Calc</h3>
     
     <label class="input-label">1. Load Tekla .lis file</label>
@@ -120,7 +120,7 @@
         </div>
     </div>
 
-    <button id="calcBtn" disabled>Calculate Weights v42</button>
+    <button id="calcBtn" disabled>Calculate Weights v44</button>
     <div id="status">Please load a .lis file to begin.</div>
 
     <div id="totalBox">
@@ -234,9 +234,29 @@
             return null;
         }
 
+        // This is the heavy compute function. We only call this if absolutely necessary.
+        function extremeGuidXRay(obj) {
+            try {
+                let strDump = JSON.stringify(obj);
+                if (!strDump) return null;
+                
+                let uMatch = strDump.match(/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/);
+                if (uMatch) return uMatch[0];
+                
+                let ifcRegex = /(?:"|')([A-Za-z0-9_\$]{22})(?:"|')/g;
+                let iMatch;
+                while ((iMatch = ifcRegex.exec(strDump)) !== null) {
+                    let g = iMatch[1];
+                    if (g.toUpperCase() !== "WEIGHT_PER_UNIT_LENGTH" && g.toUpperCase() !== "PRODUCT_REVISION_LEVEL") {
+                        return g;
+                    }
+                }
+            } catch(e) {}
+            return null;
+        }
+
         function sniffProperties(obj) {
             let res = { 
-                guids: new Set(), 
                 types: new Set(), 
                 layers: new Set(),
                 validProfs: new Set(), 
@@ -246,12 +266,6 @@
                 lenCuts: new Set() 
             };
 
-            // Aggressive Core Property Grab
-            if (obj.guid) res.guids.add(obj.guid);
-            if (obj.externalId) res.guids.add(obj.externalId); 
-            if (obj.globalId) res.guids.add(obj.globalId);
-            if (obj.GlobalId) res.guids.add(obj.GlobalId);
-            
             if (obj.type) res.types.add(obj.type);
             if (obj.objectType) res.types.add(obj.objectType);
 
@@ -264,13 +278,6 @@
                     let n = (lastKey || "").toLowerCase();
 
                     if (typeof o === 'string') {
-                        // Regex matches 36-char UUID or 22-char Base64
-                        if (/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(vTrim) || 
-                            /^[a-zA-Z0-9_\$\-]{22}$/.test(vTrim) || 
-                            /^\{[0-9a-fA-F\-]{36}\}$/.test(vTrim)) {
-                            res.guids.add(vTrim);
-                        }
-
                         let isExactMatch = weightDatabase[vStr];
                         let isRegexMatch = /(?:FLT|PLT|PL|FL)\s*\d+/.test(vStr);
                         let isUBMatch = vStr.startsWith("UB") && weightDatabase[vStr.replace(/^UB/, "UKB")];
@@ -360,30 +367,34 @@
                 for (const sel of selection) {
                     const rIds = sel.objectRuntimeIds || [sel.objectId];
                     
+                    let selectionGuidMap = {};
+                    let hiddenExternalIds = sel.objectIds || sel.externalIds || sel.guids || sel.globalIds;
+                    if (Array.isArray(hiddenExternalIds) && hiddenExternalIds.length === rIds.length) {
+                        rIds.forEach((rid, index) => selectionGuidMap[rid] = hiddenExternalIds[index]);
+                    } else if (typeof sel.objectId === 'string') {
+                        selectionGuidMap[rIds[0]] = sel.objectId; 
+                    }
+
                     const props = await tcAPI.viewer.getObjectProperties(sel.modelId, rIds);
                     
-                    let coreObjs = [];
-                    try {
-                        if (typeof tcAPI.viewer.getObjects === 'function') {
-                            coreObjs = await tcAPI.viewer.getObjects(sel.modelId, rIds);
-                        }
-                    } catch (err) {
-                        console.warn("Notice: Core object fetch skipped.", err);
-                    }
-                    
                     for (const obj of props) {
-                        const cObj = coreObjs && Array.isArray(coreObjs) ? coreObjs.find(c => c.id === obj.id) : null;
-                        if (cObj) {
-                            Object.keys(cObj).forEach(k => {
-                                if (!obj.hasOwnProperty(k)) {
-                                    obj[k] = cObj[k];
-                                }
-                            });
-                        }
-
                         let eGuid, eType, eLayer, eProf, eLenStd, eLenSpan, eLenCut;
                         let hasConflict = false;
                         let conflictDetails = [];
+
+                        // ZERO-COMPUTE GUID RESOLUTION FIRST
+                        let hijackedGuid = selectionGuidMap[obj.id];
+                        let objCoreGuid = obj.externalId || obj.globalId || obj.guid;
+                        
+                        eGuid = hijackedGuid || objCoreGuid;
+
+                        // LAZY EXECUTION: Only run the heavy X-Ray if the fast methods failed
+                        if (!eGuid) {
+                            eGuid = extremeGuidXRay(obj);
+                        }
+                        
+                        // Absolute fallback
+                        eGuid = eGuid || `ID:${obj.id}`;
 
                         if (isAutoMode) {
                             const sniffed = sniffProperties(obj);
@@ -396,14 +407,6 @@
                             if (sniffed.lenSpans.size > 1) conflictDetails.push(`Span: [${Array.from(sniffed.lenSpans).join(" vs ")}]`);
 
                             if (conflictDetails.length > 0) hasConflict = true;
-
-                            if (sniffed.guids.size > 0) {
-                                let guidArr = Array.from(sniffed.guids);
-                                let perfectGuid = guidArr.find(g => g && g.length === 22) || guidArr.find(g => g && g.length === 36);
-                                eGuid = perfectGuid || guidArr[0];
-                            } else {
-                                eGuid = `ID:${obj.id}`; 
-                            }
 
                             eType = sniffed.types.size > 0 ? Array.from(sniffed.types)[0] : null;
                             eLayer = sniffed.layers.size > 0 ? Array.from(sniffed.layers)[0] : null;
@@ -422,7 +425,6 @@
                                 return Array.isArray(s?.properties || s) ? (s.properties || s).find(p => p.name === prop)?.value : (s?.properties || s)?.[prop];
                             };
                             
-                            eGuid = obj.externalId || obj.globalId || obj.guid || `ID:${obj.id}`;
                             eType = getVal(psType, prType);
                             eLayer = getVal(psLayer, prLayer);
                             eProf = getVal(psProf, prProf);
