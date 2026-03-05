@@ -1,7 +1,7 @@
 {
   "title": "Steel Weight Calculator",
   "icon": "https://img.icons8.com/color/48/000000/weight-kg.png",
-  "description": "v45: Direct Trimble UI mapping. Explicitly targets ReferenceObject tab for GUID (MS/IFC) extraction.",
-  "url": "https://perazmak.github.io/trimble-weight-calculator/index.html?v=45",
+  "description": "v46: Core API fetch for externalId and raw API Debug JSON exporter.",
+  "url": "https://perazmak.github.io/trimble-weight-calculator/index.html?v=46",
   "enabled": true
 }
