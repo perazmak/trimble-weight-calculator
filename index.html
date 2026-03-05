@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Steel Weight Calculator v48</title>
+    <title>Steel Weight Calculator v49</title>
     <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
     <style>
         body { font-family: sans-serif; padding: 12px; background-color: #f4f4f4; font-size: 13px; margin: 0; }
@@ -48,7 +48,10 @@
         .filter-row { background-color: #eef4f9; }
         .col-filter { width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; box-sizing: border-box; font-size: 10px; }
         
-        tr:hover { background-color: #f9f9f9; }
+        /* Added visual feedback for clickable rows */
+        tr { cursor: pointer; }
+        tr:hover { background-color: #e2f0ff; }
+        
         .row-err { color: #d8000c; font-weight: bold; }
         .row-warn { background-color: #fff8e1; color: #d35400; font-weight: bold; }
         .row-alias { color: #f39c12; font-style: italic; }
@@ -57,7 +60,7 @@
     </style>
 </head>
 <body>
-    <div class="version-tag">App Version: 48.0 (Revit Tag Fallback)</div>
+    <div class="version-tag">App Version: 49.0 (Interactive 3D Selection)</div>
     <h3>Steel Weight Calc</h3>
     
     <label class="input-label">1. Load Tekla .lis file</label>
@@ -121,7 +124,7 @@
         </div>
     </div>
 
-    <button id="calcBtn" disabled>Calculate Weights v48</button>
+    <button id="calcBtn" disabled>Calculate Weights v49</button>
     <button id="debugBtn">🛠️ DEBUG: Download Raw API Data</button>
     <div id="status">Please load a .lis file to begin.</div>
 
@@ -311,7 +314,7 @@
                 lenStds: new Set(), 
                 lenSpans: new Set(), 
                 lenCuts: new Set(),
-                fallbackGuids: new Set() // New set to capture Revit Element IDs/Tags
+                fallbackGuids: new Set()
             };
             
             if (obj.type) res.types.add(obj.type);
@@ -324,7 +327,6 @@
                     let vTrim = o.toString().trim();
                     let n = (lastKey || "").toLowerCase();
 
-                    // Capture fallback architectural tracking IDs
                     if (n === "tag" || n === "type id" || n === "mark" || n === "cobie.component.name") {
                         if (vTrim.length > 0) res.fallbackGuids.add(vTrim);
                     }
@@ -373,6 +375,19 @@
             return res;
         }
 
+        // --- NEW: INTERACTIVE 3D HIGHLIGHTER ---
+        async function selectInModel(modId, rId) {
+            try {
+                if (!tcAPI) return;
+                await tcAPI.viewer.setSelection([{
+                    modelId: modId,
+                    objectRuntimeIds: [rId]
+                }]);
+            } catch(e) {
+                console.warn("Failed to select element in 3D Viewer:", e);
+            }
+        }
+
         document.getElementById('calcBtn').onclick = async function() {
             const statusEl = document.getElementById('status');
             const totalValEl = document.getElementById('totalVal');
@@ -414,7 +429,6 @@
 
                 for (const sel of selection) {
                     const rIds = sel.objectRuntimeIds || [sel.objectId];
-                    
                     const props = await tcAPI.viewer.getObjectProperties(sel.modelId, rIds);
                     
                     let coreObjs = [];
@@ -456,7 +470,6 @@
                             eLenSpan = sniffed.lenSpans.size > 0 ? Array.from(sniffed.lenSpans)[0] : null;
                             eLenCut = sniffed.lenCuts.size > 0 ? Math.min(...Array.from(sniffed.lenCuts)) : null;
                             
-                            // Capture the fallback tag if it exists
                             if (sniffed.fallbackGuids.size > 0) {
                                 sniffedFallbackGuid = `Tag:${Array.from(sniffed.fallbackGuids)[0]}`;
                             }
@@ -485,7 +498,6 @@
                             eLenCut = (rawC !== null && !isNaN(parseFloat(rawC))) ? Math.round(parseFloat(rawC)) : null;
                         }
 
-                        // Final GUID resolution chain (includes the new Revit Tag fallback)
                         eGuid = eGuid || jsonXrayGuid || sniffedFallbackGuid || `ID:${obj.id}`;
 
                         let lenUsed = null;
@@ -539,6 +551,7 @@
                             note = (note === "OK") ? `WARN: ${conflictStr}` : `${note} (WARN: ${conflictStr})`;
                         }
 
+                        // Store internal API IDs securely to enable the click-to-select feature
                         lastFullData.push({
                             guid: eGuid || "N/A",
                             type: eType || "N/A",
@@ -549,7 +562,9 @@
                             lenCut: eLenCut !== null ? eLenCut : "",
                             lenUsed: lenUsed !== null ? lenUsed : "N/A",
                             tn: tn.toFixed(4),
-                            statusNote: note
+                            statusNote: note,
+                            modelId: sel.modelId,
+                            runtimeId: obj.id
                         });
                     }
                 }
@@ -610,6 +625,9 @@
                 else if (row.statusNote.includes("WARN")) tr.className = "row-warn";
                 else if (row.statusNote.includes("Alias")) tr.className = "row-alias";
                 else if (row.statusNote.includes("Baseplate") || row.statusNote.includes("Plate Calc")) tr.className = "row-plate";
+                
+                // Bind the row click to the 3D model highlighter
+                tr.addEventListener('click', () => { selectInModel(row.modelId, row.runtimeId); });
                 
                 tr.innerHTML = `<td>${row.guid}</td><td>${row.type}</td><td>${row.layer}</td><td>${row.profile}</td>
                                 <td>${row.lenStd}</td><td>${row.lenSpan}</td><td>${row.lenCut}</td>
