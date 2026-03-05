@@ -1,7 +1,7 @@
 {
   "title": "Steel Weight Calculator",
   "icon": "https://img.icons8.com/color/48/000000/weight-kg.png",
-  "description": "v48: Revit Tag/Type ID Fallback logic for when Trimble API blocks the native IFC GlobalId.",
-  "url": "https://perazmak.github.io/trimble-weight-calculator/index.html?v=48",
+  "description": "v49: Interactive Table Rows. Clicking any data row instantly selects the element in the 3D viewer.",
+  "url": "https://perazmak.github.io/trimble-weight-calculator/index.html?v=49",
   "enabled": true
 }
