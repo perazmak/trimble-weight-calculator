@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Steel Weight Calculator v44</title>
+    <title>Steel Weight Calculator v45</title>
     <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
     <style>
         body { font-family: sans-serif; padding: 12px; background-color: #f4f4f4; font-size: 13px; margin: 0; }
@@ -56,7 +56,7 @@
     </style>
 </head>
 <body>
-    <div class="version-tag">App Version: 44.0 (Lazy X-Ray Optimization)</div>
+    <div class="version-tag">App Version: 45.0 (Direct UI Mapping)</div>
     <h3>Steel Weight Calc</h3>
     
     <label class="input-label">1. Load Tekla .lis file</label>
@@ -120,7 +120,7 @@
         </div>
     </div>
 
-    <button id="calcBtn" disabled>Calculate Weights v44</button>
+    <button id="calcBtn" disabled>Calculate Weights v45</button>
     <div id="status">Please load a .lis file to begin.</div>
 
     <div id="totalBox">
@@ -234,7 +234,40 @@
             return null;
         }
 
-        // This is the heavy compute function. We only call this if absolutely necessary.
+        // --- NEW: DIRECT TRIMBLE UI MAPPING ---
+        function extractTrimbleGuid(obj) {
+            if (!obj || !obj.properties) return null;
+            let propsArray = Array.isArray(obj.properties) ? obj.properties : Object.values(obj.properties);
+            
+            // 1. Explicitly target "ReferenceObject", "Identity Data", or "Product" tabs exactly as shown in UI
+            for (let pset of propsArray) {
+                let psetName = (pset.name || "").toString().replace(/\s/g, "").toLowerCase();
+                if (psetName === "referenceobject" || psetName === "identitydata" || psetName === "product") {
+                    let innerProps = Array.isArray(pset.properties) ? pset.properties : Object.values(pset.properties || {});
+                    for (let prop of innerProps) {
+                        let propName = (prop.name || "").toString().toLowerCase();
+                        // Look for exact matches to what you see on screen
+                        if (propName.includes("guid") || propName.includes("globalid")) {
+                            if (prop.value && prop.value.toString().trim().length > 10) return prop.value.toString().trim();
+                        }
+                    }
+                }
+            }
+            
+            // 2. Global search for standard UI names across ALL tabs if ReferenceObject fails
+            for (let pset of propsArray) {
+                let innerProps = Array.isArray(pset.properties) ? pset.properties : Object.values(pset.properties || {});
+                for (let prop of innerProps) {
+                    let propName = (prop.name || "").toString().toLowerCase().trim();
+                    if (propName === "guid" || propName === "guid (ms)" || propName === "guid (ifc)" || propName === "globalid") {
+                        if (prop.value && prop.value.toString().trim().length > 10) return prop.value.toString().trim();
+                    }
+                }
+            }
+            return null;
+        }
+
+        // Heavy compute fallback
         function extremeGuidXRay(obj) {
             try {
                 let strDump = JSON.stringify(obj);
@@ -247,9 +280,7 @@
                 let iMatch;
                 while ((iMatch = ifcRegex.exec(strDump)) !== null) {
                     let g = iMatch[1];
-                    if (g.toUpperCase() !== "WEIGHT_PER_UNIT_LENGTH" && g.toUpperCase() !== "PRODUCT_REVISION_LEVEL") {
-                        return g;
-                    }
+                    if (g.toUpperCase() !== "WEIGHT_PER_UNIT_LENGTH" && g.toUpperCase() !== "PRODUCT_REVISION_LEVEL") return g;
                 }
             } catch(e) {}
             return null;
@@ -382,18 +413,19 @@
                         let hasConflict = false;
                         let conflictDetails = [];
 
-                        // ZERO-COMPUTE GUID RESOLUTION FIRST
+                        // 1. Direct UI Mapping (Looks exactly where you told me to look)
+                        let exactUiGuid = extractTrimbleGuid(obj);
+                        
+                        // 2. Selection Map & Core Object (Background API checks)
                         let hijackedGuid = selectionGuidMap[obj.id];
                         let objCoreGuid = obj.externalId || obj.globalId || obj.guid;
                         
-                        eGuid = hijackedGuid || objCoreGuid;
+                        eGuid = exactUiGuid || hijackedGuid || objCoreGuid;
 
-                        // LAZY EXECUTION: Only run the heavy X-Ray if the fast methods failed
-                        if (!eGuid) {
-                            eGuid = extremeGuidXRay(obj);
-                        }
+                        // 3. Lazy Extreme X-Ray (Only if standard methods fail)
+                        if (!eGuid) { eGuid = extremeGuidXRay(obj); }
                         
-                        // Absolute fallback
+                        // 4. Absolute fallback
                         eGuid = eGuid || `ID:${obj.id}`;
 
                         if (isAutoMode) {
