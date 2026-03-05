@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Steel Weight Calculator v46</title>
+    <title>Steel Weight Calculator v47</title>
     <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
     <style>
         body { font-family: sans-serif; padding: 12px; background-color: #f4f4f4; font-size: 13px; margin: 0; }
@@ -57,7 +57,7 @@
     </style>
 </head>
 <body>
-    <div class="version-tag">App Version: 46.0 (Core Extractor & API Debug)</div>
+    <div class="version-tag">App Version: 47.0 (BigInt Patch)</div>
     <h3>Steel Weight Calc</h3>
     
     <label class="input-label">1. Load Tekla .lis file</label>
@@ -121,7 +121,7 @@
         </div>
     </div>
 
-    <button id="calcBtn" disabled>Calculate Weights v46</button>
+    <button id="calcBtn" disabled>Calculate Weights v47</button>
     <button id="debugBtn">🛠️ DEBUG: Download Raw API Data</button>
     <div id="status">Please load a .lis file to begin.</div>
 
@@ -171,6 +171,9 @@
         let lastFullData = [];
         let filteredData = [];
         let sortDirection = {};
+
+        // BIGINT Replacer Function to safely stringify Trimble APIs
+        const bigIntReplacer = (key, value) => typeof value === 'bigint' ? value.toString() : value;
 
         TrimbleConnectWorkspace.connect(window.parent).then(api => {
             tcAPI = api;
@@ -225,7 +228,7 @@
             }
         });
 
-        // --- NEW: RAW API DEBUG EXPORTER ---
+        // DEBUG EXPORTER WITH BIGINT FIX
         document.getElementById('debugBtn').onclick = async function() {
             try {
                 if (!tcAPI) return alert("API not ready.");
@@ -247,7 +250,8 @@
                     getObjects_API: coreData
                 };
 
-                const blob = new Blob([JSON.stringify(debugPayload, null, 2)], {type: "application/json"});
+                // Added bigIntReplacer here to prevent debug button crash
+                const blob = new Blob([JSON.stringify(debugPayload, bigIntReplacer, 2)], {type: "application/json"});
                 const url = URL.createObjectURL(blob);
                 const link = document.createElement("a");
                 link.href = url;
@@ -285,19 +289,25 @@
             return null;
         }
 
+        // EXTREME X-RAY WITH BIGINT FIX
         function extremeGuidXRay(obj) {
             try {
-                let strDump = JSON.stringify(obj);
+                // Added bigIntReplacer here to prevent silent crashes
+                let strDump = JSON.stringify(obj, bigIntReplacer);
                 if (!strDump) return null;
+                
                 let uMatch = strDump.match(/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/);
                 if (uMatch) return uMatch[0];
+                
                 let ifcRegex = /(?:"|')([A-Za-z0-9_\$]{22})(?:"|')/g;
                 let iMatch;
                 while ((iMatch = ifcRegex.exec(strDump)) !== null) {
                     let g = iMatch[1];
                     if (g.toUpperCase() !== "WEIGHT_PER_UNIT_LENGTH" && g.toUpperCase() !== "PRODUCT_REVISION_LEVEL") return g;
                 }
-            } catch(e) {}
+            } catch(e) {
+                console.warn("X-Ray encountered an un-stringifiable object", e);
+            }
             return null;
         }
 
@@ -401,7 +411,6 @@
                     
                     const props = await tcAPI.viewer.getObjectProperties(sel.modelId, rIds);
                     
-                    // --- THE CORE API FIX ---
                     let coreObjs = [];
                     try {
                         coreObjs = await tcAPI.viewer.getObjects(sel.modelId, rIds);
@@ -412,7 +421,6 @@
                         let hasConflict = false;
                         let conflictDetails = [];
 
-                        // Inject externalId from Core API if it exists
                         const cObj = coreObjs && Array.isArray(coreObjs) ? coreObjs.find(c => c.id === obj.id) : null;
                         let coreGuid = cObj ? cObj.externalId : null;
 
