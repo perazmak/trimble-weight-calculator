@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Steel Weight Calculator v49</title>
+    <title>Steel Weight Calculator v51</title>
     <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
     <style>
         body { font-family: sans-serif; padding: 12px; background-color: #f4f4f4; font-size: 13px; margin: 0; }
@@ -31,7 +31,10 @@
         button { color: white; border: none; padding: 12px; border-radius: 4px; cursor: pointer; font-weight: bold; width: 100%; margin-bottom: 10px; }
         #calcBtn { background-color: #005f9e; }
         #debugBtn { background-color: #6c757d; display: none; }
-        #exportBtn { background-color: #28a745; display: none; }
+        
+        .action-row { display: flex; gap: 10px; display: none; align-items: center; margin-top: 10px; }
+        #exportBtn { background-color: #28a745; flex: 1; padding: 12px; border: none; border-radius: 4px; color: white; font-weight: bold; cursor: pointer; }
+        #selMode { flex: 1; padding: 11px; border: 1px solid #ccc; border-radius: 4px; font-weight: bold; background: #fff; color: #333; outline: none; }
         
         #status { margin-top: 10px; padding: 8px; background: #fff; border-radius: 4px; border: 1px solid #ddd; font-size: 12px; min-height: 20px; font-weight: bold; color: #333; }
         #totalBox { background-color: #333; color: white; padding: 12px; border-radius: 4px; margin-top: 10px; display: none; text-align: center; }
@@ -48,10 +51,8 @@
         .filter-row { background-color: #eef4f9; }
         .col-filter { width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; box-sizing: border-box; font-size: 10px; }
         
-        /* Added visual feedback for clickable rows */
         tr { cursor: pointer; }
         tr:hover { background-color: #e2f0ff; }
-        
         .row-err { color: #d8000c; font-weight: bold; }
         .row-warn { background-color: #fff8e1; color: #d35400; font-weight: bold; }
         .row-alias { color: #f39c12; font-style: italic; }
@@ -60,7 +61,7 @@
     </style>
 </head>
 <body>
-    <div class="version-tag">App Version: 49.0 (Interactive 3D Selection)</div>
+    <div class="version-tag">App Version: 51.0 (Selection Flush & Row Debugger)</div>
     <h3>Steel Weight Calc</h3>
     
     <label class="input-label">1. Load Tekla .lis file</label>
@@ -124,7 +125,7 @@
         </div>
     </div>
 
-    <button id="calcBtn" disabled>Calculate Weights v49</button>
+    <button id="calcBtn" disabled>Calculate Weights v51</button>
     <button id="debugBtn">🛠️ DEBUG: Download Raw API Data</button>
     <div id="status">Please load a .lis file to begin.</div>
 
@@ -165,7 +166,14 @@
                 <tbody></tbody>
             </table>
         </div>
-        <button id="exportBtn">Export Filtered to CSV</button>
+        
+        <div class="action-row" id="actionRow">
+            <button id="exportBtn">Export to CSV</button>
+            <select id="selMode" title="If clicking a row selects the whole model, change this setting.">
+                <option value="runtime">Selection Engine: Runtime ID</option>
+                <option value="guid">Selection Engine: Native GUID</option>
+            </select>
+        </div>
     </div>
 
     <script>
@@ -375,16 +383,28 @@
             return res;
         }
 
-        // --- NEW: INTERACTIVE 3D HIGHLIGHTER ---
-        async function selectInModel(modId, rId) {
+        // --- IMPROVED SELECTION ENGINE (FLUSH & EXECUTE) ---
+        async function selectInModel(modId, rId, guid) {
             try {
                 if (!tcAPI) return;
-                await tcAPI.viewer.setSelection([{
-                    modelId: modId,
-                    objectRuntimeIds: [rId]
-                }]);
+                
+                // 1. Selection Flush: Tell Trimble to drop whatever is currently selected
+                await tcAPI.viewer.setSelection([]); 
+
+                const selMode = document.getElementById('selMode').value;
+                let payload = [];
+
+                if (selMode === "runtime") {
+                    payload = [{ modelId: modId, objectRuntimeIds: [parseInt(rId, 10)] }];
+                } else if (selMode === "guid") {
+                    let cleanGuid = guid.toString().replace("Tag:", "").replace("ID:", "").trim();
+                    payload = [{ modelId: modId, objectIds: [cleanGuid] }];
+                }
+                
+                // 2. Selection Execute: Now apply our specific row highlight safely
+                await tcAPI.viewer.setSelection(payload);
             } catch(e) {
-                console.warn("Failed to select element in 3D Viewer:", e);
+                console.warn("Failed to highlight element:", e);
             }
         }
 
@@ -551,7 +571,6 @@
                             note = (note === "OK") ? `WARN: ${conflictStr}` : `${note} (WARN: ${conflictStr})`;
                         }
 
-                        // Store internal API IDs securely to enable the click-to-select feature
                         lastFullData.push({
                             guid: eGuid || "N/A",
                             type: eType || "N/A",
@@ -626,8 +645,23 @@
                 else if (row.statusNote.includes("Alias")) tr.className = "row-alias";
                 else if (row.statusNote.includes("Baseplate") || row.statusNote.includes("Plate Calc")) tr.className = "row-plate";
                 
-                // Bind the row click to the 3D model highlighter
-                tr.addEventListener('click', () => { selectInModel(row.modelId, row.runtimeId); });
+                // NEW: Row-Level Debugger via Shift+Click
+                tr.addEventListener('click', (e) => { 
+                    if (e.shiftKey) {
+                        const debugRow = { 
+                            row_table_data: row, 
+                            attempted_payload_runtime: { modelId: row.modelId, objectRuntimeIds: [parseInt(row.runtimeId, 10)] },
+                            attempted_payload_guid: { modelId: row.modelId, objectIds: [row.guid.toString().replace("Tag:", "").replace("ID:", "").trim()] }
+                        };
+                        const blob = new Blob([JSON.stringify(debugRow, bigIntReplacer, 2)], {type: "application/json"});
+                        const link = document.createElement("a");
+                        link.href = URL.createObjectURL(blob);
+                        link.download = `row_debug_${row.runtimeId}.json`;
+                        link.click();
+                        return;
+                    }
+                    selectInModel(row.modelId, row.runtimeId, row.guid); 
+                });
                 
                 tr.innerHTML = `<td>${row.guid}</td><td>${row.type}</td><td>${row.layer}</td><td>${row.profile}</td>
                                 <td>${row.lenStd}</td><td>${row.lenSpan}</td><td>${row.lenCut}</td>
@@ -635,7 +669,7 @@
                 tbody.appendChild(tr);
             });
             document.getElementById('resultsContainer').style.display = "block";
-            document.getElementById('exportBtn').style.display = "block";
+            document.getElementById('actionRow').style.display = "flex"; 
         }
 
         function sortTable(column) {
