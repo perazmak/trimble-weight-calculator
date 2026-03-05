@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Steel Weight Calculator v37</title>
+    <title>Steel Weight Calculator v39</title>
     <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
     <style>
         body { font-family: sans-serif; padding: 12px; background-color: #f4f4f4; font-size: 13px; margin: 0; }
@@ -56,7 +56,7 @@
     </style>
 </head>
 <body>
-    <div class="version-tag">App Version: 37.0 (Smart Length Resolving)</div>
+    <div class="version-tag">App Version: 39.0 (Root GlobalId Sniffing)</div>
     <h3>Steel Weight Calc</h3>
     
     <label class="input-label">1. Load Tekla .lis file</label>
@@ -120,7 +120,7 @@
         </div>
     </div>
 
-    <button id="calcBtn" disabled>Calculate Weights v37</button>
+    <button id="calcBtn" disabled>Calculate Weights v39</button>
     <div id="status">Please load a .lis file to begin.</div>
 
     <div id="totalBox">
@@ -223,7 +223,12 @@
                 lenCuts: new Set() 
             };
 
+            // 1. Aggressive Root-Level GUID Capture
             if (obj.guid) res.guids.add(obj.guid);
+            if (obj.externalId) res.guids.add(obj.externalId); // Trimble often hides the IFC GlobalId here
+            if (obj.globalId) res.guids.add(obj.globalId);
+            if (obj.GlobalId) res.guids.add(obj.GlobalId);
+
             if (obj.type) res.types.add(obj.type);
             if (obj.objectType) res.types.add(obj.objectType);
 
@@ -238,13 +243,17 @@
                         let vStr = v.toString().trim().toUpperCase();
                         let vTrim = v.toString().trim();
 
-                        // 1. Blind GUID Sniffing
-                        if (/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(vTrim) || 
-                            /^[a-zA-Z0-9_\$]{22}$/.test(vTrim)) {
+                        // 2. Blind GUID Sniffing (Regex & Name check)
+                        let isGuidName = n.includes("guid") || n.includes("globalid") || n.includes("externalid");
+                        let isGuidRegex = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(vTrim) || 
+                                          /^[a-zA-Z0-9_$\-]{22}$/.test(vTrim) || // 22-char IFC Base64 format
+                                          /^\{[0-9a-fA-F\-]{36}\}$/.test(vTrim); 
+                                          
+                        if (isGuidName || isGuidRegex) {
                             res.guids.add(vTrim);
                         }
 
-                        // 2. Profile Sniffing (Tiered)
+                        // 3. Profile Sniffing (Tiered)
                         let isExactMatch = weightDatabase[vStr];
                         let isRegexMatch = /(?:FLT|PLT|PL|FL)\s*\d+/.test(vStr);
                         let isUBMatch = vStr.startsWith("UB") && weightDatabase[vStr.replace(/^UB/, "UKB")];
@@ -256,7 +265,7 @@
                             res.genericProfs.add(v);
                         }
 
-                        // 3. Length Sniffing (Excluding Bolts, Merging Section/Cut)
+                        // 4. Length Sniffing
                         if (!n.includes("bolt") && !isNaN(parseFloat(v))) {
                             let num = Math.round(parseFloat(v));
                             if (n.includes("cut length") || n.includes("section length")) res.lenCuts.add(num);
@@ -264,7 +273,7 @@
                             else if (n === "length" || n.includes("length")) res.lenStds.add(num);
                         }
 
-                        // 4. Type & Layer Sniffing
+                        // 5. Type & Layer Sniffing
                         if (n.includes("type") || n === "category") res.types.add(v);
                         if (n.includes("layer")) res.layers.add(v);
                     }
@@ -327,20 +336,25 @@
                             let profSetToUse = sniffed.validProfs.size > 0 ? sniffed.validProfs : sniffed.genericProfs;
                             eProf = profSetToUse.size > 0 ? Array.from(profSetToUse)[0] : null;
 
-                            // Conflict checks (omitting Cut Lengths as we auto-resolve those)
                             if (profSetToUse.size > 1) conflictDetails.push(`Prof: [${Array.from(profSetToUse).join(" vs ")}]`);
                             if (sniffed.lenStds.size > 1) conflictDetails.push(`Len: [${Array.from(sniffed.lenStds).join(" vs ")}]`);
                             if (sniffed.lenSpans.size > 1) conflictDetails.push(`Span: [${Array.from(sniffed.lenSpans).join(" vs ")}]`);
 
                             if (conflictDetails.length > 0) hasConflict = true;
 
-                            eGuid = sniffed.guids.size > 0 ? Array.from(sniffed.guids)[0] : (obj.guid || obj.id);
+                            // GUID Resolution Logic
+                            eGuid = obj.id; // Absolute bottom tier fallback
+                            if (sniffed.guids.size > 0) {
+                                let guidArr = Array.from(sniffed.guids);
+                                // Look for an exact 22 or 36 char match first
+                                let perfectGuid = guidArr.find(g => g.length === 22 || g.length === 36 || g.length === 38);
+                                eGuid = perfectGuid || guidArr[0];
+                            }
+
                             eType = sniffed.types.size > 0 ? Array.from(sniffed.types)[0] : null;
                             eLayer = sniffed.layers.size > 0 ? Array.from(sniffed.layers)[0] : null;
                             eLenStd = sniffed.lenStds.size > 0 ? Array.from(sniffed.lenStds)[0] : null;
                             eLenSpan = sniffed.lenSpans.size > 0 ? Array.from(sniffed.lenSpans)[0] : null;
-                            
-                            // Auto-resolve Cut/Section lengths by choosing the shortest value
                             eLenCut = sniffed.lenCuts.size > 0 ? Math.min(...Array.from(sniffed.lenCuts)) : null;
 
                         } else {
@@ -354,7 +368,7 @@
                                 return Array.isArray(s?.properties || s) ? (s.properties || s).find(p => p.name === prop)?.value : (s?.properties || s)?.[prop];
                             };
                             
-                            eGuid = obj.guid || obj.id;
+                            eGuid = obj.externalId || obj.globalId || obj.guid || obj.id;
                             eType = getVal(psType, prType);
                             eLayer = getVal(psLayer, prLayer);
                             eProf = getVal(psProf, prProf);
