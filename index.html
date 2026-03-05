@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Steel Weight Calculator v39</title>
+    <title>Steel Weight Calculator v40</title>
     <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
     <style>
         body { font-family: sans-serif; padding: 12px; background-color: #f4f4f4; font-size: 13px; margin: 0; }
@@ -56,7 +56,7 @@
     </style>
 </head>
 <body>
-    <div class="version-tag">App Version: 39.0 (Root GlobalId Sniffing)</div>
+    <div class="version-tag">App Version: 40.0 (Deep Traversal)</div>
     <h3>Steel Weight Calc</h3>
     
     <label class="input-label">1. Load Tekla .lis file</label>
@@ -120,7 +120,7 @@
         </div>
     </div>
 
-    <button id="calcBtn" disabled>Calculate Weights v39</button>
+    <button id="calcBtn" disabled>Calculate Weights v40</button>
     <div id="status">Please load a .lis file to begin.</div>
 
     <div id="totalBox">
@@ -211,6 +211,7 @@
             return null;
         }
 
+        // DEEP RECURSIVE SNIFFER
         function sniffProperties(obj) {
             let res = { 
                 guids: new Set(), 
@@ -223,67 +224,77 @@
                 lenCuts: new Set() 
             };
 
-            // 1. Aggressive Root-Level GUID Capture
+            // Root-Level Check
             if (obj.guid) res.guids.add(obj.guid);
-            if (obj.externalId) res.guids.add(obj.externalId); // Trimble often hides the IFC GlobalId here
+            if (obj.externalId) res.guids.add(obj.externalId);
             if (obj.globalId) res.guids.add(obj.globalId);
             if (obj.GlobalId) res.guids.add(obj.GlobalId);
-
             if (obj.type) res.types.add(obj.type);
             if (obj.objectType) res.types.add(obj.objectType);
 
-            function scanLevel(propsArr) {
-                if (!propsArr || !Array.isArray(propsArr)) return;
-                for (let prop of propsArr) {
-                    if (prop.properties && Array.isArray(prop.properties)) {
-                        scanLevel(prop.properties);
-                    } else if (prop.name !== undefined && prop.value !== undefined && prop.value !== null && prop.value !== "") {
-                        let n = prop.name.toString().toLowerCase();
-                        let v = prop.value;
-                        let vStr = v.toString().trim().toUpperCase();
-                        let vTrim = v.toString().trim();
+            // Deep Traversal Function
+            function traverse(o, lastKey) {
+                if (o === null || o === undefined) return;
 
-                        // 2. Blind GUID Sniffing (Regex & Name check)
-                        let isGuidName = n.includes("guid") || n.includes("globalid") || n.includes("externalid");
-                        let isGuidRegex = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(vTrim) || 
-                                          /^[a-zA-Z0-9_$\-]{22}$/.test(vTrim) || // 22-char IFC Base64 format
-                                          /^\{[0-9a-fA-F\-]{36}\}$/.test(vTrim); 
-                                          
-                        if (isGuidName || isGuidRegex) {
+                if (typeof o === 'string' || typeof o === 'number') {
+                    let vStr = o.toString().trim().toUpperCase();
+                    let vTrim = o.toString().trim();
+                    let n = (lastKey || "").toLowerCase();
+
+                    if (typeof o === 'string') {
+                        // Regex matches 36-char UUID or 22-char Base64 (IFC format)
+                        if (/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(vTrim) || 
+                            /^[a-zA-Z0-9_\$\-]{22}$/.test(vTrim) || 
+                            /^\{[0-9a-fA-F\-]{36}\}$/.test(vTrim)) {
                             res.guids.add(vTrim);
                         }
 
-                        // 3. Profile Sniffing (Tiered)
                         let isExactMatch = weightDatabase[vStr];
                         let isRegexMatch = /(?:FLT|PLT|PL|FL)\s*\d+/.test(vStr);
                         let isUBMatch = vStr.startsWith("UB") && weightDatabase[vStr.replace(/^UB/, "UKB")];
                         let isUCMatch = vStr.startsWith("UC") && weightDatabase[vStr.replace(/^UC/, "UKC")];
 
                         if (isExactMatch || isRegexMatch || isUBMatch || isUCMatch) {
-                            res.validProfs.add(v);
+                            res.validProfs.add(o);
                         } else if (n === "profile" || n === "reference" || n.includes("cross section")) {
-                            res.genericProfs.add(v);
+                            res.genericProfs.add(o);
                         }
 
-                        // 4. Length Sniffing
-                        if (!n.includes("bolt") && !isNaN(parseFloat(v))) {
-                            let num = Math.round(parseFloat(v));
+                        if (n.includes("type") || n === "category") res.types.add(o);
+                        if (n.includes("layer")) res.layers.add(o);
+                        
+                        // Catch lengths formatted as strings
+                        if (!n.includes("bolt") && !isNaN(parseFloat(vTrim))) {
+                            let num = Math.round(parseFloat(vTrim));
                             if (n.includes("cut length") || n.includes("section length")) res.lenCuts.add(num);
                             else if (n.includes("span")) res.lenSpans.add(num);
                             else if (n === "length" || n.includes("length")) res.lenStds.add(num);
                         }
 
-                        // 5. Type & Layer Sniffing
-                        if (n.includes("type") || n === "category") res.types.add(v);
-                        if (n.includes("layer")) res.layers.add(v);
+                    } else if (typeof o === 'number') {
+                        if (!n.includes("bolt")) {
+                            let num = Math.round(o);
+                            if (n.includes("cut length") || n.includes("section length")) res.lenCuts.add(num);
+                            else if (n.includes("span")) res.lenSpans.add(num);
+                            else if (n === "length" || n.includes("length")) res.lenStds.add(num);
+                        }
+                    }
+                } else if (Array.isArray(o)) {
+                    o.forEach(item => traverse(item, lastKey));
+                } else if (typeof o === 'object') {
+                    // Trimble standard property format check
+                    if (o.name !== undefined && o.value !== undefined) {
+                        traverse(o.value, o.name.toString());
+                        if (o.properties) traverse(o.properties, o.name.toString());
+                    } else {
+                        for (let key in o) {
+                            traverse(o[key], key);
+                        }
                     }
                 }
             }
 
-            if (obj.properties) {
-                if (Array.isArray(obj.properties)) scanLevel(obj.properties);
-                else Object.keys(obj.properties).forEach(k => { if(obj.properties[k].properties) scanLevel(obj.properties[k].properties); });
-            }
+            traverse(obj, "");
             return res;
         }
 
@@ -342,13 +353,14 @@
 
                             if (conflictDetails.length > 0) hasConflict = true;
 
-                            // GUID Resolution Logic
-                            eGuid = obj.id; // Absolute bottom tier fallback
+                            // Prioritize perfect length GUIDs over random matches
                             if (sniffed.guids.size > 0) {
                                 let guidArr = Array.from(sniffed.guids);
-                                // Look for an exact 22 or 36 char match first
-                                let perfectGuid = guidArr.find(g => g.length === 22 || g.length === 36 || g.length === 38);
+                                let perfectGuid = guidArr.find(g => g.length === 22) || guidArr.find(g => g.length === 36);
                                 eGuid = perfectGuid || guidArr[0];
+                            } else {
+                                // If absolutely nothing is found, flag it so the user knows it's a runtime ID
+                                eGuid = `ID:${obj.id}`; 
                             }
 
                             eType = sniffed.types.size > 0 ? Array.from(sniffed.types)[0] : null;
@@ -368,7 +380,7 @@
                                 return Array.isArray(s?.properties || s) ? (s.properties || s).find(p => p.name === prop)?.value : (s?.properties || s)?.[prop];
                             };
                             
-                            eGuid = obj.externalId || obj.globalId || obj.guid || obj.id;
+                            eGuid = obj.externalId || obj.globalId || obj.guid || `ID:${obj.id}`;
                             eType = getVal(psType, prType);
                             eLayer = getVal(psLayer, prLayer);
                             eProf = getVal(psProf, prProf);
