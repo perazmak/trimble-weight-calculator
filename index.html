@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Steel Weight Calculator v40</title>
+    <title>Steel Weight Calculator v41</title>
     <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
     <style>
         body { font-family: sans-serif; padding: 12px; background-color: #f4f4f4; font-size: 13px; margin: 0; }
@@ -56,7 +56,7 @@
     </style>
 </head>
 <body>
-    <div class="version-tag">App Version: 40.0 (Deep Traversal)</div>
+    <div class="version-tag">App Version: 41.0 (Core Root Fetch)</div>
     <h3>Steel Weight Calc</h3>
     
     <label class="input-label">1. Load Tekla .lis file</label>
@@ -120,7 +120,7 @@
         </div>
     </div>
 
-    <button id="calcBtn" disabled>Calculate Weights v40</button>
+    <button id="calcBtn" disabled>Calculate Weights v41</button>
     <div id="status">Please load a .lis file to begin.</div>
 
     <div id="totalBox">
@@ -211,7 +211,6 @@
             return null;
         }
 
-        // DEEP RECURSIVE SNIFFER
         function sniffProperties(obj) {
             let res = { 
                 guids: new Set(), 
@@ -224,7 +223,6 @@
                 lenCuts: new Set() 
             };
 
-            // Root-Level Check
             if (obj.guid) res.guids.add(obj.guid);
             if (obj.externalId) res.guids.add(obj.externalId);
             if (obj.globalId) res.guids.add(obj.globalId);
@@ -232,7 +230,6 @@
             if (obj.type) res.types.add(obj.type);
             if (obj.objectType) res.types.add(obj.objectType);
 
-            // Deep Traversal Function
             function traverse(o, lastKey) {
                 if (o === null || o === undefined) return;
 
@@ -242,7 +239,6 @@
                     let n = (lastKey || "").toLowerCase();
 
                     if (typeof o === 'string') {
-                        // Regex matches 36-char UUID or 22-char Base64 (IFC format)
                         if (/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(vTrim) || 
                             /^[a-zA-Z0-9_\$\-]{22}$/.test(vTrim) || 
                             /^\{[0-9a-fA-F\-]{36}\}$/.test(vTrim)) {
@@ -263,7 +259,6 @@
                         if (n.includes("type") || n === "category") res.types.add(o);
                         if (n.includes("layer")) res.layers.add(o);
                         
-                        // Catch lengths formatted as strings
                         if (!n.includes("bolt") && !isNaN(parseFloat(vTrim))) {
                             let num = Math.round(parseFloat(vTrim));
                             if (n.includes("cut length") || n.includes("section length")) res.lenCuts.add(num);
@@ -282,7 +277,6 @@
                 } else if (Array.isArray(o)) {
                     o.forEach(item => traverse(item, lastKey));
                 } else if (typeof o === 'object') {
-                    // Trimble standard property format check
                     if (o.name !== undefined && o.value !== undefined) {
                         traverse(o.value, o.name.toString());
                         if (o.properties) traverse(o.properties, o.name.toString());
@@ -334,9 +328,32 @@
                 }
 
                 for (const sel of selection) {
-                    const props = await tcAPI.viewer.getObjectProperties(sel.modelId, sel.objectRuntimeIds || [sel.objectId]);
+                    const rIds = sel.objectRuntimeIds || [sel.objectId];
+                    
+                    // 1. Fetch standard Property Sets
+                    const props = await tcAPI.viewer.getObjectProperties(sel.modelId, rIds);
+                    
+                    // 2. Fetch Core Object definitions to capture missing IFC externalIds
+                    let coreObjs = [];
+                    try {
+                        if (typeof tcAPI.viewer.getObjects === 'function') {
+                            coreObjs = await tcAPI.viewer.getObjects(sel.modelId, rIds);
+                        }
+                    } catch (err) {
+                        console.warn("Core object fetch skipped.");
+                    }
                     
                     for (const obj of props) {
+                        // Merge core object data into our element before sniffing
+                        const cObj = coreObjs.find(c => c.id === obj.id);
+                        if (cObj) {
+                            Object.keys(cObj).forEach(k => {
+                                if (!obj.hasOwnProperty(k)) {
+                                    obj[k] = cObj[k];
+                                }
+                            });
+                        }
+
                         let eGuid, eType, eLayer, eProf, eLenStd, eLenSpan, eLenCut;
                         let hasConflict = false;
                         let conflictDetails = [];
@@ -353,13 +370,11 @@
 
                             if (conflictDetails.length > 0) hasConflict = true;
 
-                            // Prioritize perfect length GUIDs over random matches
                             if (sniffed.guids.size > 0) {
                                 let guidArr = Array.from(sniffed.guids);
                                 let perfectGuid = guidArr.find(g => g.length === 22) || guidArr.find(g => g.length === 36);
                                 eGuid = perfectGuid || guidArr[0];
                             } else {
-                                // If absolutely nothing is found, flag it so the user knows it's a runtime ID
                                 eGuid = `ID:${obj.id}`; 
                             }
 
@@ -430,132 +445,3 @@
                                 }
                             } else {
                                 const manualCalc = getManualWeight(profileKey, lenUsed || 0, hasValidLength);
-                                if (manualCalc) {
-                                    tn = manualCalc.weight;
-                                    note = manualCalc.note;
-                                    lenUsed = manualCalc.extLen; 
-                                } else {
-                                    note = hasValidLength ? "ERR: Not in LIS" : "ERR: Not in LIS & Missing Length";
-                                }
-                            }
-                        }
-
-                        if (hasConflict) {
-                            let conflictStr = conflictDetails.join(" | ");
-                            note = (note === "OK") ? `WARN: ${conflictStr}` : `${note} (WARN: ${conflictStr})`;
-                        }
-
-                        lastFullData.push({
-                            guid: eGuid || "N/A",
-                            type: eType || "N/A",
-                            layer: eLayer || "N/A",
-                            profile: eProf || "N/A",
-                            lenStd: eLenStd !== null ? eLenStd : "",
-                            lenSpan: eLenSpan !== null ? eLenSpan : "",
-                            lenCut: eLenCut !== null ? eLenCut : "",
-                            lenUsed: lenUsed !== null ? lenUsed : "N/A",
-                            tn: tn.toFixed(4),
-                            statusNote: note
-                        });
-                    }
-                }
-
-                document.querySelectorAll('.col-filter').forEach(inp => inp.value = "");
-                filteredData = [...lastFullData];
-                
-                renderTable();
-                updateTotalWeight();
-                statusEl.innerText = `Calculated ${lastFullData.length} objects (Mode: ${isAutoMode ? 'AUTO' : 'USER'}).`;
-            } catch (err) {
-                alert("Error: " + err.message);
-                totalValEl.innerText = "Error";
-            }
-        };
-
-        function filterTable() {
-            const fGuid = document.getElementById('filtGuid').value.toLowerCase();
-            const fType = document.getElementById('filtType').value.toLowerCase();
-            const fLayer = document.getElementById('filtLayer').value.toLowerCase();
-            const fProf = document.getElementById('filtProf').value.toLowerCase();
-            const fLen  = document.getElementById('filtLenStd').value.toLowerCase();
-            const fSpan = document.getElementById('filtLenSpan').value.toLowerCase();
-            const fCut  = document.getElementById('filtLenCut').value.toLowerCase();
-            const fUsed = document.getElementById('filtLenUsed').value.toLowerCase();
-            const fTn   = document.getElementById('filtTn').value.toLowerCase();
-            const fStat = document.getElementById('filtStat').value.toLowerCase();
-
-            filteredData = lastFullData.filter(row => {
-                return row.guid.toString().toLowerCase().includes(fGuid) &&
-                       row.type.toString().toLowerCase().includes(fType) &&
-                       row.layer.toString().toLowerCase().includes(fLayer) &&
-                       row.profile.toString().toLowerCase().includes(fProf) &&
-                       row.lenStd.toString().toLowerCase().includes(fLen) &&
-                       row.lenSpan.toString().toLowerCase().includes(fSpan) &&
-                       row.lenCut.toString().toLowerCase().includes(fCut) &&
-                       row.lenUsed.toString().toLowerCase().includes(fUsed) &&
-                       row.tn.toString().toLowerCase().includes(fTn) &&
-                       row.statusNote.toString().toLowerCase().includes(fStat);
-            });
-            renderTable();
-            updateTotalWeight();
-        }
-
-        function updateTotalWeight() {
-            let total = filteredData.reduce((sum, row) => sum + parseFloat(row.tn), 0);
-            document.getElementById('totalVal').innerText = total.toFixed(4) + " tn";
-        }
-
-        function renderTable() {
-            const tbody = document.querySelector("#resultsTable tbody");
-            tbody.innerHTML = "";
-            filteredData.forEach(row => {
-                const tr = document.createElement("tr");
-                if (row.statusNote.includes("ERR")) tr.className = "row-err";
-                else if (row.statusNote.includes("WARN")) tr.className = "row-warn";
-                else if (row.statusNote.includes("Alias")) tr.className = "row-alias";
-                else if (row.statusNote.includes("Baseplate") || row.statusNote.includes("Plate Calc")) tr.className = "row-plate";
-                
-                tr.innerHTML = `<td>${row.guid}</td><td>${row.type}</td><td>${row.layer}</td><td>${row.profile}</td>
-                                <td>${row.lenStd}</td><td>${row.lenSpan}</td><td>${row.lenCut}</td>
-                                <td class="col-used">${row.lenUsed}</td><td>${row.tn}</td><td>${row.statusNote}</td>`;
-                tbody.appendChild(tr);
-            });
-            document.getElementById('resultsContainer').style.display = "block";
-            document.getElementById('exportBtn').style.display = "block";
-        }
-
-        function sortTable(column) {
-            sortDirection[column] = !sortDirection[column];
-            filteredData.sort((a, b) => {
-                let valA = a[column];
-                let valB = b[column];
-                if (valA !== "" && valB !== "" && !isNaN(valA) && !isNaN(valB)) {
-                    valA = parseFloat(valA);
-                    valB = parseFloat(valB);
-                }
-                if (valA < valB) return sortDirection[column] ? -1 : 1;
-                if (valA > valB) return sortDirection[column] ? 1 : -1;
-                return 0;
-            });
-            renderTable();
-        }
-
-        document.getElementById('exportBtn').onclick = function() {
-            let csv = "data:text/csv;charset=utf-8,GUID,Type,Layer,Profile,Length,Span,Cut_Length,Used_mm,Weight_tn,Status\n";
-            filteredData.forEach(r => {
-                const safeGuid = r.guid.toString().replace(/,/g, "");
-                const safeType = r.type.toString().replace(/,/g, "");
-                const safeLayer = r.layer.toString().replace(/,/g, "");
-                const safeProf = r.profile.toString().replace(/,/g, "");
-                const safeStat = r.statusNote.toString().replace(/,/g, "");
-                
-                csv += `${safeGuid},${safeType},${safeLayer},${safeProf},${r.lenStd},${r.lenSpan},${r.lenCut},${r.lenUsed},${r.tn},${safeStat}\n`;
-            });
-            const link = document.createElement("a");
-            link.setAttribute("href", encodeURI(csv));
-            link.setAttribute("download", "steel_audit_report.csv");
-            link.click();
-        };
-    </script>
-</body>
-</html>
