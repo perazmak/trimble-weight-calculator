@@ -1,7 +1,7 @@
 {
   "title": "Steel Weight Calculator",
   "icon": "https://img.icons8.com/color/48/000000/weight-kg.png",
-  "description": "v52: Click-Through shield and 4-Mode Selection Engine to bypass Trimble Connect whole-model selection bugs.",
-  "url": "https://perazmak.github.io/trimble-weight-calculator/index.html?v=52",
+  "description": "v55: JIT ID Conversion to bypass Trimble Connect Runtime routing bugs.",
+  "url": "https://perazmak.github.io/trimble-weight-calculator/index.html?v=55",
   "enabled": true
 }
