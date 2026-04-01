@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Steel Weight Calculator v55</title>
+    <title>Steel Weight Calculator v57</title>
     <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
     <style>
         body { font-family: sans-serif; padding: 12px; background-color: #f4f4f4; font-size: 13px; margin: 0; }
@@ -31,7 +31,7 @@
         button { color: white; border: none; padding: 12px; border-radius: 4px; cursor: pointer; font-weight: bold; width: 100%; margin-bottom: 10px; }
         #calcBtn { background-color: #005f9e; }
         #debugBtn { background-color: #6c757d; display: none; }
-        #exportBtn { background-color: #28a745; display: none; margin-top: 10px; }
+        #exportBtn { background-color: #28a745; display: none; margin-top: 10px; width: 100%; }
         
         #status { margin-top: 10px; padding: 8px; background: #fff; border-radius: 4px; border: 1px solid #ddd; font-size: 12px; min-height: 20px; font-weight: bold; color: #333; }
         #totalBox { background-color: #333; color: white; padding: 12px; border-radius: 4px; margin-top: 10px; display: none; text-align: center; }
@@ -60,7 +60,7 @@
     </style>
 </head>
 <body>
-    <div class="version-tag">App Version: 55.0 (JIT ID Converter)</div>
+    <div class="version-tag">App Version: 57.0 (Dual-Step Selection Flush)</div>
     <h3>Steel Weight Calc</h3>
     
     <label class="input-label">1. Load Tekla .lis file</label>
@@ -124,7 +124,7 @@
         </div>
     </div>
 
-    <button id="calcBtn" disabled>Calculate Weights v55</button>
+    <button id="calcBtn" disabled>Calculate Weights v57</button>
     <button id="debugBtn">🛠️ DEBUG: Download Raw API Data</button>
     <div id="status">Please load a .lis file to begin.</div>
 
@@ -247,7 +247,7 @@
                 } catch(e) { coreData = e.message; }
 
                 const debugPayload = {
-                    instructions: "Search this file for your GUID.",
+                    instructions: "Trimble Debug Data",
                     selection_event: sel[0],
                     getObjectProperties_API: props,
                     getObjects_API: coreData
@@ -288,22 +288,6 @@
                     }
                 }
             }
-            return null;
-        }
-
-        function extremeGuidXRay(obj) {
-            try {
-                let strDump = JSON.stringify(obj, bigIntReplacer);
-                if (!strDump) return null;
-                let uMatch = strDump.match(/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/);
-                if (uMatch) return uMatch[0];
-                let ifcRegex = /(?:"|')([A-Za-z0-9_\$]{22})(?:"|')/g;
-                let iMatch;
-                while ((iMatch = ifcRegex.exec(strDump)) !== null) {
-                    let g = iMatch[1];
-                    if (g.toUpperCase() !== "WEIGHT_PER_UNIT_LENGTH" && g.toUpperCase() !== "PRODUCT_REVISION_LEVEL") return g;
-                }
-            } catch(e) {}
             return null;
         }
 
@@ -367,60 +351,22 @@
             return res;
         }
 
-        // --- V55: JUST-IN-TIME ID TRANSLATOR ---
-        async function jittSelectInModel(modId, rId) {
+        // --- V57: DUAL-STEP SELECTION FLUSH ---
+        async function selectInModel(modId, rId) {
             try {
                 if (!tcAPI) return;
                 
-                const numRId = parseInt(rId, 10);
+                // STEP 1: Send an empty array to force Trimble to instantly flush the massive 10,000-item selection
+                await tcAPI.viewer.setSelection([]);
                 
-                // 1. Force Trimble to translate the internal integer into its own official string ID
-                let officialIds = [];
-                try {
-                    officialIds = await tcAPI.viewer.convertToObjectIds(modId, [numRId]);
-                } catch(e) {
-                    console.warn("JIT Conversion skipped or failed:", e);
-                }
-
-                // 2. Build the payload using the translated string (bypassing the Runtime ID map bug)
-                let payload = [];
-                if (officialIds && officialIds.length > 0) {
-                    payload = [{ modelId: modId, objectIds: officialIds }];
-                } else {
-                    // Fallback if conversion fails
-                    payload = [{ modelId: modId, objectRuntimeIds: [numRId] }];
-                }
+                // STEP 2: Wait a quarter of a second for the graphics card to catch up, then select the pure Part ID
+                setTimeout(async () => {
+                    const payload = [{ modelId: modId, objectRuntimeIds: [parseInt(rId, 10)] }];
+                    await tcAPI.viewer.setSelection(payload);
+                }, 250);
                 
-                await tcAPI.viewer.setSelection(payload);
             } catch(e) {
-                console.warn("Selection Error:", e);
-            }
-        }
-
-        // --- NEW: V55 SHIFT-CLICK ROW DIAGNOSTIC ---
-        async function debugRowJit(modId, rId, rawRow) {
-            try {
-                if (!tcAPI) return;
-                const numRId = parseInt(rId, 10);
-                let officialIds = "Failed";
-                try {
-                    officialIds = await tcAPI.viewer.convertToObjectIds(modId, [numRId]);
-                } catch (err) { officialIds = err.message; }
-                
-                const debugRow = { 
-                    instructions: "If this file shows an official ID but the viewer still highlights the whole model, Trimble's entire WebGL selection engine is experiencing a severe local failure.",
-                    row_data: rawRow, 
-                    input_runtimeId: numRId,
-                    trimble_translated_objectIds: officialIds
-                };
-                
-                const blob = new Blob([JSON.stringify(debugRow, bigIntReplacer, 2)], {type: "application/json"});
-                const link = document.createElement("a");
-                link.href = URL.createObjectURL(blob);
-                link.download = `row_diagnostic_${rId}.json`;
-                link.click();
-            } catch (e) {
-                alert("Diagnostic failed: " + e.message);
+                console.error("Selection Error:", e);
             }
         }
 
@@ -480,11 +426,8 @@
                         const cObj = coreObjs && Array.isArray(coreObjs) ? coreObjs.find(c => c.id === obj.id) : null;
                         let coreGuid = cObj ? cObj.externalId : null;
 
-                        let exactUiGuid = extractTrimbleGuid(obj);
-                        let jsonXrayGuid = null;
-                        
-                        eGuid = coreGuid || exactUiGuid;
-                        if (!eGuid) { jsonXrayGuid = extremeGuidXRay(obj); }
+                        // Removed extremeGuidXRay to prevent poisoning with Root File UUIDs
+                        eGuid = coreGuid || extractTrimbleGuid(obj);
                         
                         let sniffedFallbackGuid = null;
 
@@ -534,7 +477,7 @@
                             eLenCut = (rawC !== null && !isNaN(parseFloat(rawC))) ? Math.round(parseFloat(rawC)) : null;
                         }
 
-                        eGuid = eGuid || jsonXrayGuid || sniffedFallbackGuid || `ID:${obj.id}`;
+                        eGuid = eGuid || sniffedFallbackGuid || `ID:${obj.id}`;
 
                         let lenUsed = null;
                         const availableLens = { 'L': eLenStd, 'S': eLenSpan, 'C': eLenCut };
@@ -670,13 +613,7 @@
                 btn.addEventListener('click', (e) => { 
                     e.preventDefault();
                     e.stopPropagation();
-                    
-                    if (e.shiftKey) {
-                        debugRowJit(row.modelId, row.runtimeId, row);
-                        return;
-                    }
-                    
-                    jittSelectInModel(row.modelId, row.runtimeId); 
+                    selectInModel(row.modelId, row.runtimeId); 
                 });
 
                 tbody.appendChild(tr);
