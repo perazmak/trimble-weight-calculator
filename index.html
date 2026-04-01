@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Steel Weight Calculator v52</title>
+    <title>Steel Weight Calculator v55</title>
     <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
     <style>
         body { font-family: sans-serif; padding: 12px; background-color: #f4f4f4; font-size: 13px; margin: 0; }
@@ -31,10 +31,7 @@
         button { color: white; border: none; padding: 12px; border-radius: 4px; cursor: pointer; font-weight: bold; width: 100%; margin-bottom: 10px; }
         #calcBtn { background-color: #005f9e; }
         #debugBtn { background-color: #6c757d; display: none; }
-        
-        .action-row { display: flex; gap: 10px; display: none; align-items: center; margin-top: 10px; }
-        #exportBtn { background-color: #28a745; flex: 1; padding: 12px; border: none; border-radius: 4px; color: white; font-weight: bold; cursor: pointer; }
-        #selMode { flex: 1; padding: 11px; border: 1px solid #ccc; border-radius: 4px; font-weight: bold; background: #fff; color: #333; outline: none; }
+        #exportBtn { background-color: #28a745; display: none; margin-top: 10px; }
         
         #status { margin-top: 10px; padding: 8px; background: #fff; border-radius: 4px; border: 1px solid #ddd; font-size: 12px; min-height: 20px; font-weight: bold; color: #333; }
         #totalBox { background-color: #333; color: white; padding: 12px; border-radius: 4px; margin-top: 10px; display: none; text-align: center; }
@@ -43,7 +40,7 @@
         #resultsContainer { display: none; margin-top: 15px; }
         .table-wrapper { max-height: 400px; overflow-y: auto; overflow-x: auto; border: 1px solid #ccc; background: #fff; }
         table { width: 100%; border-collapse: collapse; font-size: 10px; white-space: nowrap; }
-        th, td { border: 1px solid #eee; padding: 6px; text-align: left; }
+        th, td { border: 1px solid #eee; padding: 6px; text-align: left; vertical-align: middle; }
         
         thead { position: sticky; top: 0; z-index: 2; background-color: #005f9e; }
         th.sort-header { color: white; cursor: pointer; user-select: none; font-size: 10px; padding-bottom: 2px;}
@@ -51,17 +48,19 @@
         .filter-row { background-color: #eef4f9; }
         .col-filter { width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; box-sizing: border-box; font-size: 10px; }
         
-        tr { cursor: pointer; }
-        tr:hover { background-color: #e2f0ff; }
+        tr:hover { background-color: #f9f9f9; }
         .row-err { color: #d8000c; font-weight: bold; }
         .row-warn { background-color: #fff8e1; color: #d35400; font-weight: bold; }
         .row-alias { color: #f39c12; font-style: italic; }
         .row-plate { color: #005f9e; font-style: italic; }
         .col-used { background-color: #f0f7ff; font-weight: bold; }
+
+        .hl-btn { background: #005f9e; color: white; border: none; padding: 6px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: bold; width: auto; margin: 0; transition: background 0.2s; }
+        .hl-btn:hover { background: #00ccff; color: #000; }
     </style>
 </head>
 <body>
-    <div class="version-tag">App Version: 52.0 (Click-Shield & 4-Mode Engine)</div>
+    <div class="version-tag">App Version: 55.0 (JIT ID Converter)</div>
     <h3>Steel Weight Calc</h3>
     
     <label class="input-label">1. Load Tekla .lis file</label>
@@ -125,7 +124,7 @@
         </div>
     </div>
 
-    <button id="calcBtn" disabled>Calculate Weights v52</button>
+    <button id="calcBtn" disabled>Calculate Weights v55</button>
     <button id="debugBtn">🛠️ DEBUG: Download Raw API Data</button>
     <div id="status">Please load a .lis file to begin.</div>
 
@@ -139,6 +138,7 @@
             <table id="resultsTable">
                 <thead>
                     <tr>
+                        <th>Action</th>
                         <th class="sort-header" onclick="sortTable('guid')">GUID ↕</th>
                         <th class="sort-header" onclick="sortTable('type')">Type ↕</th>
                         <th class="sort-header" onclick="sortTable('layer')">Layer ↕</th>
@@ -151,6 +151,7 @@
                         <th class="sort-header" onclick="sortTable('statusNote')">Status ↕</th>
                     </tr>
                     <tr class="filter-row">
+                        <th></th>
                         <th><input type="text" class="col-filter" id="filtGuid" placeholder="Filter..." onkeyup="filterTable()"></th>
                         <th><input type="text" class="col-filter" id="filtType" placeholder="Filter..." onkeyup="filterTable()"></th>
                         <th><input type="text" class="col-filter" id="filtLayer" placeholder="Filter..." onkeyup="filterTable()"></th>
@@ -166,16 +167,7 @@
                 <tbody></tbody>
             </table>
         </div>
-        
-        <div class="action-row" id="actionRow">
-            <button id="exportBtn">Export to CSV</button>
-            <select id="selMode" title="If clicking a row selects the whole model, change this setting.">
-                <option value="runtime_int">Select By: Runtime ID (Integer)</option>
-                <option value="runtime_str">Select By: Runtime ID (String)</option>
-                <option value="guid">Select By: Native GUID</option>
-                <option value="combo">Select By: Combo Mode (Both IDs)</option>
-            </select>
-        </div>
+        <button id="exportBtn">Export Filtered to CSV</button>
     </div>
 
     <script>
@@ -255,7 +247,7 @@
                 } catch(e) { coreData = e.message; }
 
                 const debugPayload = {
-                    instructions: "Search this file for your GUID. If it's not here, Trimble Connect is blocking it from the API.",
+                    instructions: "Search this file for your GUID.",
                     selection_event: sel[0],
                     getObjectProperties_API: props,
                     getObjects_API: coreData
@@ -316,17 +308,7 @@
         }
 
         function sniffProperties(obj) {
-            let res = { 
-                types: new Set(), 
-                layers: new Set(), 
-                validProfs: new Set(), 
-                genericProfs: new Set(), 
-                lenStds: new Set(), 
-                lenSpans: new Set(), 
-                lenCuts: new Set(),
-                fallbackGuids: new Set()
-            };
-            
+            let res = { types: new Set(), layers: new Set(), validProfs: new Set(), genericProfs: new Set(), lenStds: new Set(), lenSpans: new Set(), lenCuts: new Set(), fallbackGuids: new Set() };
             if (obj.type) res.types.add(obj.type);
             if (obj.objectType) res.types.add(obj.objectType);
 
@@ -337,7 +319,6 @@
                     let vTrim = o.toString().trim();
                     let n = (lastKey || "").toLowerCase();
 
-                    // Capture fallback architectural tracking IDs (Revit Tags)
                     if (n === "tag" || n === "type id" || n === "mark" || n === "cobie.component.name") {
                         if (vTrim.length > 0) res.fallbackGuids.add(vTrim);
                     }
@@ -386,30 +367,60 @@
             return res;
         }
 
-        // --- EXTREME SHIELD SELECTION ENGINE ---
-        async function selectInModel(modId, rId, guid) {
+        // --- V55: JUST-IN-TIME ID TRANSLATOR ---
+        async function jittSelectInModel(modId, rId) {
             try {
                 if (!tcAPI) return;
                 
-                const selMode = document.getElementById('selMode').value;
-                let payload = [];
-                let cleanGuid = guid ? guid.toString().replace("Tag:", "").replace("ID:", "").trim() : "";
+                const numRId = parseInt(rId, 10);
+                
+                // 1. Force Trimble to translate the internal integer into its own official string ID
+                let officialIds = [];
+                try {
+                    officialIds = await tcAPI.viewer.convertToObjectIds(modId, [numRId]);
+                } catch(e) {
+                    console.warn("JIT Conversion skipped or failed:", e);
+                }
 
-                // Build exactly what the user selected in the dropdown menu
-                if (selMode === "runtime_int") {
-                    payload = [{ modelId: modId, objectRuntimeIds: [parseInt(rId, 10)] }];
-                } else if (selMode === "runtime_str") {
-                    payload = [{ modelId: modId, objectRuntimeIds: [rId.toString()] }];
-                } else if (selMode === "guid") {
-                    payload = [{ modelId: modId, objectIds: [cleanGuid] }];
-                } else if (selMode === "combo") {
-                    payload = [{ modelId: modId, objectRuntimeIds: [parseInt(rId, 10)], objectIds: [cleanGuid] }];
+                // 2. Build the payload using the translated string (bypassing the Runtime ID map bug)
+                let payload = [];
+                if (officialIds && officialIds.length > 0) {
+                    payload = [{ modelId: modId, objectIds: officialIds }];
+                } else {
+                    // Fallback if conversion fails
+                    payload = [{ modelId: modId, objectRuntimeIds: [numRId] }];
                 }
                 
-                // Blast the payload to the API
                 await tcAPI.viewer.setSelection(payload);
             } catch(e) {
                 console.warn("Selection Error:", e);
+            }
+        }
+
+        // --- NEW: V55 SHIFT-CLICK ROW DIAGNOSTIC ---
+        async function debugRowJit(modId, rId, rawRow) {
+            try {
+                if (!tcAPI) return;
+                const numRId = parseInt(rId, 10);
+                let officialIds = "Failed";
+                try {
+                    officialIds = await tcAPI.viewer.convertToObjectIds(modId, [numRId]);
+                } catch (err) { officialIds = err.message; }
+                
+                const debugRow = { 
+                    instructions: "If this file shows an official ID but the viewer still highlights the whole model, Trimble's entire WebGL selection engine is experiencing a severe local failure.",
+                    row_data: rawRow, 
+                    input_runtimeId: numRId,
+                    trimble_translated_objectIds: officialIds
+                };
+                
+                const blob = new Blob([JSON.stringify(debugRow, bigIntReplacer, 2)], {type: "application/json"});
+                const link = document.createElement("a");
+                link.href = URL.createObjectURL(blob);
+                link.download = `row_diagnostic_${rId}.json`;
+                link.click();
+            } catch (e) {
+                alert("Diagnostic failed: " + e.message);
             }
         }
 
@@ -459,7 +470,7 @@
                     let coreObjs = [];
                     try {
                         coreObjs = await tcAPI.viewer.getObjects(sel.modelId, rIds);
-                    } catch (e) { console.warn("Core object fetch skipped."); }
+                    } catch (e) {}
                     
                     for (const obj of props) {
                         let eGuid, eType, eLayer, eProf, eLenStd, eLenSpan, eLenCut;
@@ -588,7 +599,7 @@
                             tn: tn.toFixed(4),
                             statusNote: note,
                             modelId: sel.modelId,
-                            runtimeId: obj.id // Safely stored for the click function
+                            runtimeId: obj.id 
                         });
                     }
                 }
@@ -650,35 +661,28 @@
                 else if (row.statusNote.includes("Alias")) tr.className = "row-alias";
                 else if (row.statusNote.includes("Baseplate") || row.statusNote.includes("Plate Calc")) tr.className = "row-plate";
                 
-                // EVENT BUBBLING SHIELD AND DEBUG CLICK
-                tr.addEventListener('click', (e) => { 
+                tr.innerHTML = `<td><button class="hl-btn">🎯</button></td>
+                                <td>${row.guid}</td><td>${row.type}</td><td>${row.layer}</td><td>${row.profile}</td>
+                                <td>${row.lenStd}</td><td>${row.lenSpan}</td><td>${row.lenCut}</td>
+                                <td class="col-used">${row.lenUsed}</td><td>${row.tn}</td><td>${row.statusNote}</td>`;
+                
+                const btn = tr.querySelector('.hl-btn');
+                btn.addEventListener('click', (e) => { 
                     e.preventDefault();
                     e.stopPropagation();
                     
                     if (e.shiftKey) {
-                        const debugRow = { 
-                            row_table_data: row, 
-                            attempted_payload_runtime: { modelId: row.modelId, objectRuntimeIds: [parseInt(row.runtimeId, 10)] },
-                            attempted_payload_guid: { modelId: row.modelId, objectIds: [row.guid.toString().replace("Tag:", "").replace("ID:", "").trim()] }
-                        };
-                        const blob = new Blob([JSON.stringify(debugRow, bigIntReplacer, 2)], {type: "application/json"});
-                        const link = document.createElement("a");
-                        link.href = URL.createObjectURL(blob);
-                        link.download = `row_debug_${row.runtimeId}.json`;
-                        link.click();
+                        debugRowJit(row.modelId, row.runtimeId, row);
                         return;
                     }
                     
-                    selectInModel(row.modelId, row.runtimeId, row.guid); 
+                    jittSelectInModel(row.modelId, row.runtimeId); 
                 });
-                
-                tr.innerHTML = `<td>${row.guid}</td><td>${row.type}</td><td>${row.layer}</td><td>${row.profile}</td>
-                                <td>${row.lenStd}</td><td>${row.lenSpan}</td><td>${row.lenCut}</td>
-                                <td class="col-used">${row.lenUsed}</td><td>${row.tn}</td><td>${row.statusNote}</td>`;
+
                 tbody.appendChild(tr);
             });
             document.getElementById('resultsContainer').style.display = "block";
-            document.getElementById('actionRow').style.display = "flex"; 
+            document.getElementById('exportBtn').style.display = "block";
         }
 
         function sortTable(column) {
