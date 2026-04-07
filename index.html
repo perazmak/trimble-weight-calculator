@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Steel Weight Calculator v64</title>
+    <title>Steel Weight Calculator v65</title>
     <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
     <style>
         body { font-family: sans-serif; padding: 12px; background-color: #f4f4f4; font-size: 13px; margin: 0; }
@@ -30,7 +30,11 @@
 
         button { color: white; border: none; padding: 12px; border-radius: 4px; cursor: pointer; font-weight: bold; width: 100%; margin-bottom: 10px; }
         #calcBtn { background-color: #005f9e; }
-        #debugBtn { background-color: #6c757d; }
+        
+        /* The Massive Deep Debugger Button */
+        #deepDebugBtn { background-color: #d32f2f; font-size: 14px; text-transform: uppercase; border: 2px solid #8e0000; display: none; }
+        #deepDebugBtn:hover { background-color: #b71c1c; }
+        
         #exportBtn { background-color: #28a745; display: none; margin-top: 10px; width: 100%; }
         
         #status { margin-top: 10px; padding: 8px; background: #fff; border-radius: 4px; border: 1px solid #ddd; font-size: 12px; min-height: 20px; font-weight: bold; color: #333; }
@@ -61,7 +65,7 @@
     </style>
 </head>
 <body>
-    <div class="version-tag">App Version: 64.0 (Brute-Force Regex GUID & TC Support Selection)</div>
+    <div class="version-tag">App Version: 65.0 (Clean Slate & Deep Tracer)</div>
     <h3>Steel Weight Calc</h3>
     
     <label class="input-label">1. Load Tekla .lis file</label>
@@ -125,8 +129,10 @@
         </div>
     </div>
 
-    <button id="calcBtn" disabled>Calculate Weights v64</button>
-    <button id="debugBtn">🛠️ DEBUG: Download Raw API Data</button>
+    <button id="calcBtn" disabled>Calculate Weights v65</button>
+    
+    <button id="deepDebugBtn">🚨 DEEP DEBUG TRACER (Select 1 Item)</button>
+    
     <div id="status">Please load a .lis file to begin.</div>
 
     <div id="totalBox">
@@ -182,6 +188,7 @@
 
         TrimbleConnectWorkspace.connect(window.parent).then(api => {
             tcAPI = api;
+            document.getElementById('deepDebugBtn').style.display = "block"; // Make Deep Debugger visible
             if (Object.keys(weightDatabase).length > 0) document.getElementById('calcBtn').disabled = false;
         }).catch(err => console.warn("TC API Notice:", err));
 
@@ -232,35 +239,79 @@
             }
         });
 
-        document.getElementById('debugBtn').onclick = async function() {
+        // --- V65 ULTIMATE DEEP DEBUGGER ---
+        document.getElementById('deepDebugBtn').onclick = async function() {
             try {
                 if (!tcAPI) return alert("API not ready.");
-                const sel = await tcAPI.viewer.getSelection();
-                if (!sel || sel.length === 0) return alert("Please select at least one item in the 3D viewer first.");
                 
-                const rIds = sel[0].objectRuntimeIds || [sel[0].objectId];
-                const props = await tcAPI.viewer.getObjectProperties(sel[0].modelId, rIds);
-                
-                let coreData = "Failed to fetch core objects";
-                try {
-                    coreData = await tcAPI.viewer.getObjects(sel[0].modelId, rIds);
-                } catch(e) { coreData = e.message; }
+                const selection = await tcAPI.viewer.getSelection();
+                if (!selection || selection.length === 0 || !selection[0].objectRuntimeIds || selection[0].objectRuntimeIds.length !== 1) {
+                    return alert("Please select EXACTLY ONE item in the 3D viewer (preferably Tag 4523067) before running the Deep Debugger.");
+                }
+
+                const modId = selection[0].modelId;
+                const rId = selection[0].objectRuntimeIds[0];
+
+                document.getElementById('status').innerText = "Running Deep Trace on object...";
+
+                // Fetch every possible piece of data
+                let props = "Failed";
+                let coreObjs = "Failed";
+                let convertedIds = "Failed";
+                let convertedBackToRIds = "Failed";
+
+                try { props = await tcAPI.viewer.getObjectProperties(modId, [rId]); } catch(e) { props = e.message; }
+                try { coreObjs = await tcAPI.viewer.getObjects(modId, [rId]); } catch(e) { coreObjs = e.message; }
+                try { 
+                    convertedIds = await tcAPI.viewer.convertToObjectIds(modId, [rId]); 
+                    // Test TC Support's inverse loop using whatever String ID it just gave us
+                    if (convertedIds && convertedIds.length > 0) {
+                        try {
+                            convertedBackToRIds = await tcAPI.viewer.convertToObjectRuntimeIds(modId, convertedIds);
+                        } catch(e) { convertedBackToRIds = e.message; }
+                    }
+                } catch(e) { convertedIds = e.message; }
+
+                // The Searcher Function
+                let foundPaths = [];
+                function searchPayload(obj, currentPath) {
+                    if (obj === null || obj === undefined) return;
+                    if (typeof obj === 'string') {
+                        if (obj === "6a76058c-5ae2-468a-83d5-4a6d7c02927b") foundPaths.push(`${currentPath} = MS GUID`);
+                        if (obj === "1gTWMCMk96YeFLIcry0f9x") foundPaths.push(`${currentPath} = IFC GUID`);
+                        if (obj === "4523067") foundPaths.push(`${currentPath} = TAG`);
+                    } else if (typeof obj === 'object') {
+                        for (let key in obj) {
+                            searchPayload(obj[key], `${currentPath}.${key}`);
+                        }
+                    }
+                }
+
+                searchPayload(props, "getObjectProperties");
+                searchPayload(coreObjs, "getObjects");
+                searchPayload(convertedIds, "convertToObjectIds");
 
                 const debugPayload = {
-                    instructions: "Raw Trimble API Output",
-                    selection_event: sel[0],
-                    getObjectProperties_API: props,
-                    getObjects_API: coreData
+                    instructions_for_llm: "This file contains the ground truth traces. Check 'ground_truth_search_results' to see where the 36-char MS GUID actually lives. Check 'api_convertToObjectIds_output' to see if Trimble natively returns the MS GUID or the IFC GUID.",
+                    target_part_runtimeId: rId,
+                    ground_truth_search_results: foundPaths,
+                    api_convertToObjectIds_output: convertedIds,
+                    api_convertToObjectRuntimeIds_output: convertedBackToRIds,
+                    raw_properties: props,
+                    raw_objects: coreObjs
                 };
 
                 const blob = new Blob([JSON.stringify(debugPayload, bigIntReplacer, 2)], {type: "application/json"});
                 const url = URL.createObjectURL(blob);
                 const link = document.createElement("a");
                 link.href = url;
-                link.download = "trimble_debug_data.json";
+                link.download = `ultimate_deep_trace_${rId}.json`;
                 link.click();
+                
+                document.getElementById('status').innerText = "Trace complete. File downloaded.";
+
             } catch (err) {
-                alert("Debug Tool Error: " + err.message);
+                alert("Deep Debugger Failed: " + err.message);
             }
         };
 
@@ -274,46 +325,6 @@
             if (match2D && hasValidLength) return { weight: parseFloat(match2D[1]) * parseFloat(match2D[2]) * lengthMm * 0.00000000785, note: "Plate Calc (2D)", extLen: lengthMm };
             
             return null;
-        }
-
-        // --- V64: THE BULLETPROOF BRUTE-FORCE REGEX GUID EXTRACTOR ---
-        function findBestGuid(obj, coreObj) {
-            let guid36 = null;
-            let guid22 = null;
-            let tag = null;
-
-            // 1. Brute-Force Regex Scan across the entire properties object
-            try {
-                if (obj && obj.properties) {
-                    let strDump = JSON.stringify(obj.properties);
-                    let matches = strDump.match(/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/g);
-                    if (matches && matches.length > 0) guid36 = matches[0];
-                }
-            } catch(e) {}
-
-            // 2. Check Core Object External ID as backup
-            if (coreObj && coreObj.externalId) {
-                let ext = coreObj.externalId.toString().trim();
-                if (ext.length === 36 && !guid36) guid36 = ext;
-                else if (ext.length === 22 && !guid22) guid22 = ext;
-            }
-
-            // 3. Last Resort Fallback Traversal (captures 22-char IFC or Revit Tags)
-            let propsArray = obj && obj.properties ? (Array.isArray(obj.properties) ? obj.properties : Object.values(obj.properties)) : [];
-            for (let pset of propsArray) {
-                let innerProps = pset.properties ? (Array.isArray(pset.properties) ? pset.properties : Object.values(pset.properties)) : [];
-                for (let prop of innerProps) {
-                    let pName = (prop.name || "").toString().toLowerCase().trim();
-                    let pVal = prop.value ? prop.value.toString().trim() : "";
-                    
-                    if (!guid36 && pVal.length === 36 && /^[0-9a-fA-F]{8}-/.test(pVal)) guid36 = pVal;
-                    else if (!guid22 && (pName.includes("guid") || pName === "globalid") && pVal.length === 22) guid22 = pVal;
-                    else if (!tag && (pName === "tag" || pName === "mark")) tag = pVal;
-                }
-            }
-
-            // Priority: 36-char (MS) > 22-char (IFC) > Tag
-            return guid36 || guid22 || (tag ? "Tag:" + tag : null);
         }
 
         function sniffProperties(obj) {
@@ -372,41 +383,26 @@
             return res;
         }
 
-        // --- V64: TC SUPPORT METHOD EXACT IMPLEMENTATION ---
-        async function selectInModel(modId, bestGuid, rawRuntimeId, btnElement) {
-            let cleanGuid = bestGuid ? bestGuid.toString().replace("Tag:", "").replace("ID:", "").trim() : "";
+        // --- V65: SIMPLIFIED SELECTION FALLBACK ---
+        async function selectInModel(modId, guidStr, rId, btnElement) {
+            let cleanGuid = guidStr ? guidStr.toString().replace("Tag:", "").replace("ID:", "").trim() : "";
             
             try {
                 if (tcAPI) { 
                     let targetRuntimeIds = [];
-                    
-                    // TC Support Directive: Pass the GUID into the converter FIRST
                     if (cleanGuid) {
                         try {
                             const converted = await tcAPI.viewer.convertToObjectRuntimeIds(modId, [cleanGuid]);
-                            if (converted && converted.length > 0) {
-                                targetRuntimeIds = converted;
-                            }
-                        } catch(e) { console.warn("TC API Conversion failed", e); }
+                            if (converted && converted.length > 0) targetRuntimeIds = converted;
+                        } catch(e) {}
                     }
-                    
-                    // Fallback to the raw Runtime ID if the conversion yielded nothing
-                    if (targetRuntimeIds.length === 0) {
-                        targetRuntimeIds = [parseInt(rawRuntimeId, 10)];
-                    }
+                    if (targetRuntimeIds.length === 0) targetRuntimeIds = [parseInt(rId, 10)];
 
-                    // Execute Selection
-                    await tcAPI.viewer.setSelection([{ 
-                        modelId: modId, 
-                        objectRuntimeIds: targetRuntimeIds 
-                    }]);
+                    await tcAPI.viewer.setSelection([{ modelId: modId, objectRuntimeIds: targetRuntimeIds }]);
                 }
-            } catch(e) {
-                console.error("Selection API Error:", e);
-            }
+            } catch(e) { console.error("Selection API Error:", e); }
 
-            // Clipboard Bridge (Safety feature)
-            navigator.clipboard.writeText(cleanGuid || rawRuntimeId.toString()).then(() => {
+            navigator.clipboard.writeText(cleanGuid || rId.toString()).then(() => {
                 const originalText = btnElement.innerText;
                 btnElement.innerText = "SELECTED!";
                 btnElement.classList.add("copied");
@@ -415,32 +411,6 @@
                     btnElement.classList.remove("copied");
                 }, 1500);
             }).catch(() => {});
-        }
-
-        // --- ROW DIAGNOSTIC (Shift+Click) ---
-        async function runRowDiagnostic(modId, bestGuid, rawRuntimeId) {
-            try {
-                let cleanGuid = bestGuid ? bestGuid.toString().replace("Tag:", "").replace("ID:", "").trim() : "";
-                let tcConvertedIds = "Failed or Empty";
-                
-                if (tcAPI && cleanGuid) {
-                    try { tcConvertedIds = await tcAPI.viewer.convertToObjectRuntimeIds(modId, [cleanGuid]); } catch(e) { tcConvertedIds = e.message; }
-                }
-
-                const diagPayload = {
-                    instructions: "If this file shows that 'tc_support_conversion_output' generated valid integers, but the whole model is still highlighted, TC Support needs to investigate their setSelection API logic for this specific IFC file.",
-                    table_extracted_guid: cleanGuid,
-                    raw_runtime_id: rawRuntimeId,
-                    tc_support_conversion_output: tcConvertedIds
-                };
-
-                const blob = new Blob([JSON.stringify(diagPayload, bigIntReplacer, 2)], {type: "application/json"});
-                const url = URL.createObjectURL(blob);
-                const link = document.createElement("a");
-                link.href = url;
-                link.download = `selection_diagnostic_${rawRuntimeId}.json`;
-                link.click();
-            } catch(e) { alert("Diag failed: " + e.message); }
         }
 
         document.getElementById('calcBtn').onclick = async function() {
@@ -484,20 +454,29 @@
 
                 for (const sel of selection) {
                     const rIds = sel.objectRuntimeIds || [sel.objectId];
+                    
+                    // V65: Clean Slate Extraction using API's native converter
+                    let officialIds = [];
+                    try {
+                        if (tcAPI.viewer.convertToObjectIds) {
+                            officialIds = await tcAPI.viewer.convertToObjectIds(sel.modelId, rIds);
+                        }
+                    } catch(e) { console.warn("Conversion failed"); }
+                    
                     const props = await tcAPI.viewer.getObjectProperties(sel.modelId, rIds);
                     
-                    let coreObjs = [];
-                    try { coreObjs = await tcAPI.viewer.getObjects(sel.modelId, rIds); } catch (e) {}
-                    
-                    for (const obj of props) {
-                        let eGuid, eType, eLayer, eProf, eLenStd, eLenSpan, eLenCut;
+                    for (let i = 0; i < props.length; i++) {
+                        const obj = props[i];
+                        let eGuid = null, eType, eLayer, eProf, eLenStd, eLenSpan, eLenCut;
                         let hasConflict = false;
                         let conflictDetails = [];
 
-                        const cObj = coreObjs && Array.isArray(coreObjs) ? coreObjs.find(c => c.id === obj.id) : null;
-                        
-                        // V64: The Brute-Force Extraction guarantees the 36-char GUID is found if it exists
-                        eGuid = findBestGuid(obj, cObj) || `ID:${obj.id}`;
+                        // Simply map whatever the official TC API returns for this object
+                        if (officialIds && officialIds.length > i && officialIds[i]) {
+                            eGuid = officialIds[i];
+                        } else {
+                            eGuid = `ID:${obj.id}`;
+                        }
 
                         if (isAutoMode) {
                             const sniffed = sniffProperties(obj);
@@ -593,7 +572,7 @@
                         }
 
                         lastFullData.push({
-                            guid: eGuid || "N/A",
+                            guid: eGuid,
                             type: eType || "N/A",
                             layer: eLayer || "N/A",
                             profile: eProf || "N/A",
@@ -675,12 +654,6 @@
                 btn.addEventListener('click', (e) => { 
                     e.preventDefault();
                     e.stopPropagation();
-                    
-                    if (e.shiftKey) {
-                        runRowDiagnostic(row.modelId, row.guid, row.runtimeId);
-                        return;
-                    }
-                    
                     selectInModel(row.modelId, row.guid, row.runtimeId, btn); 
                 });
 
