@@ -1,7 +1,7 @@
 {
   "title": "Steel Weight Calculator",
   "icon": "https://img.icons8.com/color/48/000000/weight-kg.png",
-  "description": "v60: Official TC Support Pathway. Converts GUID to Runtime ID prior to selection to bypass Assembly graphics bugs.",
-  "url": "https://perazmak.github.io/trimble-weight-calculator/index.html?v=60",
+  "description": "v61: Pre-calculation ID Translation to fetch GUID (MS) on Part selections, and permanent Debug Button.",
+  "url": "https://perazmak.github.io/trimble-weight-calculator/index.html?v=61",
   "enabled": true
 }
