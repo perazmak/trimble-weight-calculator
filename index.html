@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Steel Weight Calculator v62</title>
+    <title>Steel Weight Calculator v63</title>
     <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
     <style>
         body { font-family: sans-serif; padding: 12px; background-color: #f4f4f4; font-size: 13px; margin: 0; }
@@ -30,7 +30,7 @@
 
         button { color: white; border: none; padding: 12px; border-radius: 4px; cursor: pointer; font-weight: bold; width: 100%; margin-bottom: 10px; }
         #calcBtn { background-color: #005f9e; }
-        #debugBtn { background-color: #6c757d; display: none; }
+        #debugBtn { background-color: #6c757d; }
         #exportBtn { background-color: #28a745; display: none; margin-top: 10px; width: 100%; }
         
         #status { margin-top: 10px; padding: 8px; background: #fff; border-radius: 4px; border: 1px solid #ddd; font-size: 12px; min-height: 20px; font-weight: bold; color: #333; }
@@ -61,7 +61,7 @@
     </style>
 </head>
 <body>
-    <div class="version-tag">App Version: 62.0 (GUID (MS) Prioritization & Selection)</div>
+    <div class="version-tag">App Version: 63.0 (The Master Assembly Bridge)</div>
     <h3>Steel Weight Calc</h3>
     
     <label class="input-label">1. Load Tekla .lis file</label>
@@ -125,7 +125,7 @@
         </div>
     </div>
 
-    <button id="calcBtn" disabled>Calculate Weights v62</button>
+    <button id="calcBtn" disabled>Calculate Weights v63</button>
     <button id="debugBtn">🛠️ DEBUG: Download Raw API Data</button>
     <div id="status">Please load a .lis file to begin.</div>
 
@@ -182,7 +182,6 @@
 
         TrimbleConnectWorkspace.connect(window.parent).then(api => {
             tcAPI = api;
-            document.getElementById('debugBtn').style.display = "block";
             if (Object.keys(weightDatabase).length > 0) document.getElementById('calcBtn').disabled = false;
         }).catch(err => console.warn("TC API Notice:", err));
 
@@ -243,9 +242,7 @@
                 const props = await tcAPI.viewer.getObjectProperties(sel[0].modelId, rIds);
                 
                 let coreData = "Failed to fetch core objects";
-                try {
-                    coreData = await tcAPI.viewer.getObjects(sel[0].modelId, rIds);
-                } catch(e) { coreData = e.message; }
+                try { coreData = await tcAPI.viewer.getObjects(sel[0].modelId, rIds); } catch(e) {}
 
                 const debugPayload = {
                     instructions: "Raw Trimble API Output",
@@ -277,40 +274,42 @@
             return null;
         }
 
-        // V62: PRIORITIZE THE 36-CHARACTER GUID (MS) OVER THE 22-CHARACTER GUID (IFC)
+        // V63: X-Rays an object specifically for the 36-character MS GUID
         function extractTrimbleGuidMS(obj) {
             if (!obj || !obj.properties) return null;
             let propsArray = Array.isArray(obj.properties) ? obj.properties : Object.values(obj.properties);
             
-            let fallback22 = null;
-
             for (let pset of propsArray) {
                 let innerProps = Array.isArray(pset.properties) ? pset.properties : Object.values(pset.properties || {});
                 for (let prop of innerProps) {
                     let propName = (prop.name || "").toString().toLowerCase().trim();
                     let propVal = prop.value ? prop.value.toString().trim() : "";
                     
-                    // 1. Explicitly check for GUID (MS) exact match first
-                    if (propName === "guid (ms)" && propVal.length >= 32) {
-                        return propVal; 
-                    }
-                    
-                    // 2. Check if the value matches the standard 36-char UUID pattern anywhere
-                    if (/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(propVal)) {
-                        return propVal;
-                    }
+                    if (propName === "guid (ms)" && propVal.length >= 32) return propVal; 
+                    if (/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(propVal)) return propVal;
+                }
+            }
+            return null;
+        }
 
-                    // 3. Store 22-char IFC GUID as a last resort fallback
-                    if ((propName === "guid (ifc)" || propName === "guid" || propName === "globalid") && propVal.length === 22) {
-                        fallback22 = propVal;
+        function extractFallbackTag(obj) {
+            if (!obj || !obj.properties) return null;
+            let propsArray = Array.isArray(obj.properties) ? obj.properties : Object.values(obj.properties);
+            for (let pset of propsArray) {
+                let innerProps = Array.isArray(pset.properties) ? pset.properties : Object.values(pset.properties || {});
+                for (let prop of innerProps) {
+                    let propName = (prop.name || "").toString().toLowerCase().trim();
+                    let propVal = prop.value ? prop.value.toString().trim() : "";
+                    if (propName === "tag" || propName === "type id" || propName === "mark" || propName === "cobie.component.name") {
+                        if (propVal.length > 0) return `Tag:${propVal}`;
                     }
                 }
             }
-            return fallback22; // Only returns the 22-char ID if the 36-char one physically doesn't exist
+            return null;
         }
 
         function sniffProperties(obj) {
-            let res = { types: new Set(), layers: new Set(), validProfs: new Set(), genericProfs: new Set(), lenStds: new Set(), lenSpans: new Set(), lenCuts: new Set(), fallbackGuids: new Set() };
+            let res = { types: new Set(), layers: new Set(), validProfs: new Set(), genericProfs: new Set(), lenStds: new Set(), lenSpans: new Set(), lenCuts: new Set() };
             if (obj.type) res.types.add(obj.type);
             if (obj.objectType) res.types.add(obj.objectType);
 
@@ -320,10 +319,6 @@
                     let vStr = o.toString().trim().toUpperCase();
                     let vTrim = o.toString().trim();
                     let n = (lastKey || "").toLowerCase();
-
-                    if (n === "tag" || n === "type id" || n === "mark" || n === "cobie.component.name") {
-                        if (vTrim.length > 0) res.fallbackGuids.add(vTrim);
-                    }
 
                     if (typeof o === 'string') {
                         let isExactMatch = weightDatabase[vStr];
@@ -369,36 +364,23 @@
             return res;
         }
 
-        // V62: TC SUPPORT'S EXACT API METHOD (CONVERT -> SELECT)
-        async function selectInModel(modId, guidStr, rId, btnElement) {
-            let cleanGuid = guidStr ? guidStr.toString().replace("Tag:", "").replace("ID:", "").trim() : "";
-            
+        // V63: EXECUTE PRE-VERIFIED ASSEMBLY SELECTION
+        async function selectInModel(modId, asmRId, partRId, guidStr, btnElement) {
             try {
-                if (tcAPI && cleanGuid) { 
-                    
-                    // 1. Send the 36-char GUID to TC to get the verified Runtime ID
-                    const runtimeIds = await tcAPI.viewer.convertToObjectRuntimeIds(modId, [cleanGuid]);
-                    
-                    // 2. Select using that exact ID
-                    if (runtimeIds && runtimeIds.length > 0) {
-                        await tcAPI.viewer.setSelection([{ 
-                            modelId: modId, 
-                            objectRuntimeIds: runtimeIds 
-                        }]);
-                    } else {
-                        // Fallback just in case conversion returns nothing
-                        await tcAPI.viewer.setSelection([{ 
-                            modelId: modId, 
-                            objectRuntimeIds: [parseInt(rId, 10)] 
-                        }]);
-                    }
+                if (tcAPI) {
+                    // Uses the verified Assembly Runtime ID generated during calculation
+                    let targetId = asmRId ? parseInt(asmRId, 10) : parseInt(partRId, 10);
+                    await tcAPI.viewer.setSelection([{ 
+                        modelId: modId, 
+                        objectRuntimeIds: [targetId] 
+                    }]);
                 }
             } catch(e) {
                 console.error("Selection API Error:", e);
             }
 
-            // Still copies to clipboard as a convenient fallback
-            navigator.clipboard.writeText(cleanGuid || rId.toString()).then(() => {
+            let cleanGuid = guidStr ? guidStr.toString().replace("Tag:", "").replace("ID:", "").trim() : "";
+            navigator.clipboard.writeText(cleanGuid).then(() => {
                 const originalText = btnElement.innerText;
                 btnElement.innerText = "SELECTED!";
                 btnElement.classList.add("copied");
@@ -450,25 +432,48 @@
 
                 for (const sel of selection) {
                     const rIds = sel.objectRuntimeIds || [sel.objectId];
-                    const props = await tcAPI.viewer.getObjectProperties(sel.modelId, rIds);
                     
-                    let coreObjs = [];
-                    try {
-                        coreObjs = await tcAPI.viewer.getObjects(sel.modelId, rIds);
-                    } catch (e) {}
+                    // V63: THE MASTER BRIDGE SEQUENCE
+                    // 1. Fetch properties of the Parts the user clicked on
+                    const partProps = await tcAPI.viewer.getObjectProperties(sel.modelId, rIds);
                     
-                    for (const obj of props) {
-                        let eGuid, eType, eLayer, eProf, eLenStd, eLenSpan, eLenCut;
+                    // 2. Translate Part Runtime IDs into 22-char IFC GUIDs
+                    let ifcGuids = [];
+                    try { if (tcAPI.viewer.convertToObjectIds) ifcGuids = await tcAPI.viewer.convertToObjectIds(sel.modelId, rIds); } catch(e) {}
+                    
+                    // 3. Translate 22-char IFC GUIDs into Assembly Runtime IDs
+                    let assemblyRIds = [];
+                    try { if (tcAPI.viewer.convertToObjectRuntimeIds && ifcGuids.length > 0) assemblyRIds = await tcAPI.viewer.convertToObjectRuntimeIds(sel.modelId, ifcGuids); } catch(e) {}
+                    
+                    // 4. Fetch the properties of the Assemblies (which contain the 36-char GUIDs)
+                    let flatAsmRIds = Array.isArray(assemblyRIds) ? assemblyRIds.flat() : [];
+                    let asmProps = [];
+                    try { if (flatAsmRIds.length > 0) asmProps = await tcAPI.viewer.getObjectProperties(sel.modelId, flatAsmRIds); } catch(e) {}
+                    
+                    for (let i = 0; i < partProps.length; i++) {
+                        const obj = partProps[i];
+                        let rId = rIds[i]; // The Part ID
+                        
+                        let eGuid = null, eType, eLayer, eProf, eLenStd, eLenSpan, eLenCut;
                         let hasConflict = false;
                         let conflictDetails = [];
 
-                        const cObj = coreObjs && Array.isArray(coreObjs) ? coreObjs.find(c => c.id === obj.id) : null;
-                        let coreGuid = cObj ? cObj.externalId : null;
-
-                        // V62 uses the new extraction engine prioritized for 36-char GUIDs
-                        eGuid = extractTrimbleGuidMS(obj) || coreGuid;
+                        // Pair the Part with its corresponding Assembly
+                        let ifcGuid = (ifcGuids && ifcGuids.length > i) ? ifcGuids[i] : null;
+                        let asmRId = null;
+                        if (assemblyRIds && assemblyRIds.length > i) {
+                            asmRId = Array.isArray(assemblyRIds[i]) ? assemblyRIds[i][0] : assemblyRIds[i];
+                        }
                         
-                        let sniffedFallbackGuid = null;
+                        let asmObj = null;
+                        if (asmRId !== null && asmProps) asmObj = asmProps.find(p => p.id === asmRId);
+
+                        // Extract the 36-char GUID specifically from the Assembly properties
+                        let guid36 = extractTrimbleGuidMS(asmObj) || extractTrimbleGuidMS(obj);
+                        let fallbackTag = extractFallbackTag(obj);
+
+                        // Prioritize the 36-char GUID, fallback to 22-char IFC, fallback to Tag
+                        eGuid = guid36 || ifcGuid || fallbackTag || `ID:${rId}`;
 
                         if (isAutoMode) {
                             const sniffed = sniffProperties(obj);
@@ -487,10 +492,6 @@
                             eLenStd = sniffed.lenStds.size > 0 ? Array.from(sniffed.lenStds)[0] : null;
                             eLenSpan = sniffed.lenSpans.size > 0 ? Array.from(sniffed.lenSpans)[0] : null;
                             eLenCut = sniffed.lenCuts.size > 0 ? Math.min(...Array.from(sniffed.lenCuts)) : null;
-                            
-                            if (sniffed.fallbackGuids.size > 0) {
-                                sniffedFallbackGuid = `Tag:${Array.from(sniffed.fallbackGuids)[0]}`;
-                            }
 
                         } else {
                             const getVal = (pset, prop) => {
@@ -515,8 +516,6 @@
                             eLenSpan = (rawS !== null && !isNaN(parseFloat(rawS))) ? Math.round(parseFloat(rawS)) : null;
                             eLenCut = (rawC !== null && !isNaN(parseFloat(rawC))) ? Math.round(parseFloat(rawC)) : null;
                         }
-
-                        eGuid = eGuid || sniffedFallbackGuid || `ID:${obj.id}`;
 
                         let lenUsed = null;
                         const availableLens = { 'L': eLenStd, 'S': eLenSpan, 'C': eLenCut };
@@ -570,7 +569,7 @@
                         }
 
                         lastFullData.push({
-                            guid: eGuid || "N/A",
+                            guid: eGuid,
                             type: eType || "N/A",
                             layer: eLayer || "N/A",
                             profile: eProf || "N/A",
@@ -581,7 +580,8 @@
                             tn: tn.toFixed(4),
                             statusNote: note,
                             modelId: sel.modelId,
-                            runtimeId: obj.id 
+                            partRId: rId,
+                            asmRId: asmRId // Critical: Storing Assembly ID for perfect selection
                         });
                     }
                 }
@@ -652,7 +652,7 @@
                 btn.addEventListener('click', (e) => { 
                     e.preventDefault();
                     e.stopPropagation();
-                    selectInModel(row.modelId, row.guid, row.runtimeId, btn); 
+                    selectInModel(row.modelId, row.asmRId, row.partRId, row.guid, btn); 
                 });
 
                 tbody.appendChild(tr);
