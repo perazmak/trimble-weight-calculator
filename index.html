@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Steel Weight Calculator v58</title>
+    <title>Steel Weight Calculator v60</title>
     <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
     <style>
         body { font-family: sans-serif; padding: 12px; background-color: #f4f4f4; font-size: 13px; margin: 0; }
@@ -61,7 +61,7 @@
     </style>
 </head>
 <body>
-    <div class="version-tag">App Version: 58.0 (Clipboard-Search Bridge)</div>
+    <div class="version-tag">App Version: 60.0 (TC Support Selection API)</div>
     <h3>Steel Weight Calc</h3>
     
     <label class="input-label">1. Load Tekla .lis file</label>
@@ -125,7 +125,8 @@
         </div>
     </div>
 
-    <button id="calcBtn" disabled>Calculate Weights v58</button>
+    <button id="calcBtn" disabled>Calculate Weights v60</button>
+    <button id="debugBtn">🛠️ DEBUG: Download Raw API Data</button>
     <div id="status">Please load a .lis file to begin.</div>
 
     <div id="totalBox">
@@ -138,7 +139,7 @@
             <table id="resultsTable">
                 <thead>
                     <tr>
-                        <th title="Copies ID to clipboard for TC Native Search">Action</th>
+                        <th title="Select object in 3D viewer">Action</th>
                         <th class="sort-header" onclick="sortTable('guid')">GUID ↕</th>
                         <th class="sort-header" onclick="sortTable('type')">Type ↕</th>
                         <th class="sort-header" onclick="sortTable('layer')">Layer ↕</th>
@@ -176,6 +177,8 @@
         let lastFullData = [];
         let filteredData = [];
         let sortDirection = {};
+
+        const bigIntReplacer = (key, value) => typeof value === 'bigint' ? value.toString() : value;
 
         TrimbleConnectWorkspace.connect(window.parent).then(api => {
             tcAPI = api;
@@ -228,6 +231,38 @@
                 document.getElementById('status').style.color = "#d8000c";
             }
         });
+
+        document.getElementById('debugBtn').onclick = async function() {
+            try {
+                if (!tcAPI) return alert("API not ready.");
+                const sel = await tcAPI.viewer.getSelection();
+                if (!sel || sel.length === 0) return alert("Please select at least one item in the 3D viewer first.");
+                
+                const rIds = sel[0].objectRuntimeIds || [sel[0].objectId];
+                const props = await tcAPI.viewer.getObjectProperties(sel[0].modelId, rIds);
+                
+                let coreData = "Failed to fetch core objects";
+                try {
+                    coreData = await tcAPI.viewer.getObjects(sel[0].modelId, rIds);
+                } catch(e) { coreData = e.message; }
+
+                const debugPayload = {
+                    instructions: "Raw Trimble API Output",
+                    selection_event: sel[0],
+                    getObjectProperties_API: props,
+                    getObjects_API: coreData
+                };
+
+                const blob = new Blob([JSON.stringify(debugPayload, bigIntReplacer, 2)], {type: "application/json"});
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement("a");
+                link.href = url;
+                link.download = "trimble_debug_data.json";
+                link.click();
+            } catch (err) {
+                alert("Debug Tool Error: " + err.message);
+            }
+        };
 
         function getManualWeight(profileStr, lengthMm, hasValidLength) {
             const regex3D = /(?:PL|PLT|FL|FLT)\s*(\d+(?:\.\d+)?)[x\*](\d+(?:\.\d+)?)[x\*](\d+(?:\.\d+)?)/i;
@@ -316,34 +351,39 @@
             return res;
         }
 
-        // --- V58: THE CLIPBOARD-SEARCH BRIDGE ---
-        function selectInModel(modId, rId, guidStr, btnElement) {
-            // 1. Silent API execute (just in case API works on some specific files)
+        // --- V60: TC SUPPORT OFFICIAL PATHWAY ---
+        async function selectInModel(modId, guidStr, btnElement) {
+            let cleanGuid = guidStr ? guidStr.toString().replace("Tag:", "").replace("ID:", "").trim() : "";
+            
             try {
-                if (tcAPI) { tcAPI.viewer.setSelection([{ modelId: modId, objectRuntimeIds: [parseInt(rId, 10)] }]); }
-            } catch(e) {}
-
-            // 2. The Foolproof Bridge: Copy to Clipboard for Native TC Search
-            let searchTarget = guidStr;
-            if (!searchTarget || searchTarget.startsWith("ID:") || searchTarget === "N/A") {
-                searchTarget = rId.toString(); // Fallback to raw ID if GUID is fully blocked
-            } else {
-                searchTarget = searchTarget.replace("Tag:", "").trim();
+                if (tcAPI && cleanGuid) { 
+                    // STEP 1: Use the API method provided by Support to convert GUID -> Runtime ID
+                    const runtimeIds = await tcAPI.viewer.convertToObjectRuntimeIds(modId, [cleanGuid]);
+                    
+                    // STEP 2: Pass those specific Runtime IDs to the selection engine
+                    if (runtimeIds && runtimeIds.length > 0) {
+                        await tcAPI.viewer.setSelection([{ 
+                            modelId: modId, 
+                            objectRuntimeIds: runtimeIds 
+                        }]);
+                    } else {
+                        console.warn("TC API returned no runtime IDs for GUID:", cleanGuid);
+                    }
+                }
+            } catch(e) {
+                console.error("TC Support Selection API Error:", e);
             }
 
-            navigator.clipboard.writeText(searchTarget).then(() => {
-                // Visual feedback that the copy was successful
+            // Visual feedback + Clipboard fallback just in case
+            navigator.clipboard.writeText(cleanGuid).then(() => {
                 const originalText = btnElement.innerText;
-                btnElement.innerText = "COPIED!";
+                btnElement.innerText = "SELECTED!";
                 btnElement.classList.add("copied");
-                
                 setTimeout(() => {
                     btnElement.innerText = originalText;
                     btnElement.classList.remove("copied");
                 }, 1500);
-            }).catch(err => {
-                console.warn("Clipboard access denied by browser.", err);
-            });
+            }).catch(() => {});
         }
 
         document.getElementById('calcBtn').onclick = async function() {
@@ -578,7 +618,7 @@
                 else if (row.statusNote.includes("Alias")) tr.className = "row-alias";
                 else if (row.statusNote.includes("Baseplate") || row.statusNote.includes("Plate Calc")) tr.className = "row-plate";
                 
-                tr.innerHTML = `<td><button class="hl-btn" title="Copy to Clipboard">🎯</button></td>
+                tr.innerHTML = `<td><button class="hl-btn" title="Select object in 3D viewer">🎯</button></td>
                                 <td>${row.guid}</td><td>${row.type}</td><td>${row.layer}</td><td>${row.profile}</td>
                                 <td>${row.lenStd}</td><td>${row.lenSpan}</td><td>${row.lenCut}</td>
                                 <td class="col-used">${row.lenUsed}</td><td>${row.tn}</td><td>${row.statusNote}</td>`;
@@ -587,7 +627,7 @@
                 btn.addEventListener('click', (e) => { 
                     e.preventDefault();
                     e.stopPropagation();
-                    selectInModel(row.modelId, row.runtimeId, row.guid, btn); 
+                    selectInModel(row.modelId, row.guid, btn); 
                 });
 
                 tbody.appendChild(tr);
