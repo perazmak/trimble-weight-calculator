@@ -1,7 +1,7 @@
 {
   "title": "Steel Weight Calculator",
   "icon": "https://img.icons8.com/color/48/000000/weight-kg.png",
-  "description": "v58: The Clipboard-Search Bridge. Bypasses Trimble's API selection bug by syncing rows directly to your clipboard for native TC Search.",
-  "url": "https://perazmak.github.io/trimble-weight-calculator/index.html?v=58",
+  "description": "v60: Official TC Support Pathway. Converts GUID to Runtime ID prior to selection to bypass Assembly graphics bugs.",
+  "url": "https://perazmak.github.io/trimble-weight-calculator/index.html?v=60",
   "enabled": true
 }
