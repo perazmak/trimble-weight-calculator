@@ -1,7 +1,7 @@
 {
   "title": "Steel Weight Calculator",
   "icon": "https://img.icons8.com/color/48/000000/weight-kg.png",
-  "description": "v61: Pre-calculation ID Translation to fetch GUID (MS) on Part selections, and permanent Debug Button.",
-  "url": "https://perazmak.github.io/trimble-weight-calculator/index.html?v=61",
+  "description": "v62: Prioritizes 36-character GUID (MS) extraction to successfully fulfill TC Support's convertToObjectRuntimeIds selection API.",
+  "url": "https://perazmak.github.io/trimble-weight-calculator/index.html?v=62",
   "enabled": true
 }
