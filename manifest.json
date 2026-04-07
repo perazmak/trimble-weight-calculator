@@ -1,7 +1,7 @@
 {
   "title": "Steel Weight Calculator",
   "icon": "https://img.icons8.com/color/48/000000/weight-kg.png",
-  "description": "v62: Prioritizes 36-character GUID (MS) extraction to successfully fulfill TC Support's convertToObjectRuntimeIds selection API.",
-  "url": "https://perazmak.github.io/trimble-weight-calculator/index.html?v=62",
+  "description": "v63: The Master Bridge. Cross-references Part geometries with Assembly properties to extract 36-char GUIDs and execute perfect selections.",
+  "url": "https://perazmak.github.io/trimble-weight-calculator/index.html?v=63",
   "enabled": true
 }
