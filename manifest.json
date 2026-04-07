@@ -1,7 +1,7 @@
 {
   "title": "Steel Weight Calculator",
   "icon": "https://img.icons8.com/color/48/000000/weight-kg.png",
-  "description": "v63: The Master Bridge. Cross-references Part geometries with Assembly properties to extract 36-char GUIDs and execute perfect selections.",
-  "url": "https://perazmak.github.io/trimble-weight-calculator/index.html?v=63",
+  "description": "v64: Brute-Force Regex 36-char GUID Extractor + TC Support Official Selection Pathway.",
+  "url": "https://perazmak.github.io/trimble-weight-calculator/index.html?v=64",
   "enabled": true
 }
