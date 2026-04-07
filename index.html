@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Steel Weight Calculator v61</title>
+    <title>Steel Weight Calculator v62</title>
     <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
     <style>
         body { font-family: sans-serif; padding: 12px; background-color: #f4f4f4; font-size: 13px; margin: 0; }
@@ -30,10 +30,7 @@
 
         button { color: white; border: none; padding: 12px; border-radius: 4px; cursor: pointer; font-weight: bold; width: 100%; margin-bottom: 10px; }
         #calcBtn { background-color: #005f9e; }
-        
-        /* Fixed Debug Button - Always visible now */
-        #debugBtn { background-color: #6c757d; }
-        
+        #debugBtn { background-color: #6c757d; display: none; }
         #exportBtn { background-color: #28a745; display: none; margin-top: 10px; width: 100%; }
         
         #status { margin-top: 10px; padding: 8px; background: #fff; border-radius: 4px; border: 1px solid #ddd; font-size: 12px; min-height: 20px; font-weight: bold; color: #333; }
@@ -64,7 +61,7 @@
     </style>
 </head>
 <body>
-    <div class="version-tag">App Version: 61.0 (GUID Extraction & Fixed Debugger)</div>
+    <div class="version-tag">App Version: 62.0 (GUID (MS) Prioritization & Selection)</div>
     <h3>Steel Weight Calc</h3>
     
     <label class="input-label">1. Load Tekla .lis file</label>
@@ -128,7 +125,7 @@
         </div>
     </div>
 
-    <button id="calcBtn" disabled>Calculate Weights v61</button>
+    <button id="calcBtn" disabled>Calculate Weights v62</button>
     <button id="debugBtn">🛠️ DEBUG: Download Raw API Data</button>
     <div id="status">Please load a .lis file to begin.</div>
 
@@ -142,7 +139,7 @@
             <table id="resultsTable">
                 <thead>
                     <tr>
-                        <th title="Try 3D Highlight & Copy ID">Action</th>
+                        <th title="Select Object in 3D Viewer">Action</th>
                         <th class="sort-header" onclick="sortTable('guid')">GUID ↕</th>
                         <th class="sort-header" onclick="sortTable('type')">Type ↕</th>
                         <th class="sort-header" onclick="sortTable('layer')">Layer ↕</th>
@@ -185,6 +182,7 @@
 
         TrimbleConnectWorkspace.connect(window.parent).then(api => {
             tcAPI = api;
+            document.getElementById('debugBtn').style.display = "block";
             if (Object.keys(weightDatabase).length > 0) document.getElementById('calcBtn').disabled = false;
         }).catch(err => console.warn("TC API Notice:", err));
 
@@ -245,19 +243,13 @@
                 const props = await tcAPI.viewer.getObjectProperties(sel[0].modelId, rIds);
                 
                 let coreData = "Failed to fetch core objects";
-                let officialIds = "Failed";
                 try {
                     coreData = await tcAPI.viewer.getObjects(sel[0].modelId, rIds);
                 } catch(e) { coreData = e.message; }
-                
-                try {
-                    officialIds = await tcAPI.viewer.convertToObjectIds(sel[0].modelId, rIds);
-                } catch(e) { officialIds = e.message; }
 
                 const debugPayload = {
-                    instructions: "Raw Trimble API Output - Send to Support if requested",
+                    instructions: "Raw Trimble API Output",
                     selection_event: sel[0],
-                    converted_official_ids: officialIds,
                     getObjectProperties_API: props,
                     getObjects_API: coreData
                 };
@@ -266,7 +258,7 @@
                 const url = URL.createObjectURL(blob);
                 const link = document.createElement("a");
                 link.href = url;
-                link.download = "trimble_debug_data_v61.json";
+                link.download = "trimble_debug_data.json";
                 link.click();
             } catch (err) {
                 alert("Debug Tool Error: " + err.message);
@@ -285,20 +277,36 @@
             return null;
         }
 
-        function extractTrimbleGuid(obj) {
+        // V62: PRIORITIZE THE 36-CHARACTER GUID (MS) OVER THE 22-CHARACTER GUID (IFC)
+        function extractTrimbleGuidMS(obj) {
             if (!obj || !obj.properties) return null;
             let propsArray = Array.isArray(obj.properties) ? obj.properties : Object.values(obj.properties);
+            
+            let fallback22 = null;
+
             for (let pset of propsArray) {
                 let innerProps = Array.isArray(pset.properties) ? pset.properties : Object.values(pset.properties || {});
                 for (let prop of innerProps) {
                     let propName = (prop.name || "").toString().toLowerCase().trim();
-                    // Looking explicitly for GUIDs in the properties panel
-                    if (propName === "guid" || propName === "guid (ms)" || propName === "guid (ifc)" || propName === "globalid") {
-                        if (prop.value && prop.value.toString().trim().length > 10) return prop.value.toString().trim();
+                    let propVal = prop.value ? prop.value.toString().trim() : "";
+                    
+                    // 1. Explicitly check for GUID (MS) exact match first
+                    if (propName === "guid (ms)" && propVal.length >= 32) {
+                        return propVal; 
+                    }
+                    
+                    // 2. Check if the value matches the standard 36-char UUID pattern anywhere
+                    if (/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(propVal)) {
+                        return propVal;
+                    }
+
+                    // 3. Store 22-char IFC GUID as a last resort fallback
+                    if ((propName === "guid (ifc)" || propName === "guid" || propName === "globalid") && propVal.length === 22) {
+                        fallback22 = propVal;
                     }
                 }
             }
-            return null;
+            return fallback22; // Only returns the 22-char ID if the 36-char one physically doesn't exist
         }
 
         function sniffProperties(obj) {
@@ -361,27 +369,38 @@
             return res;
         }
 
-        // --- V61: HYBRID SELECTION & CLIPBOARD BRIDGE ---
-        async function selectInModel(modId, rId, guidStr, btnElement) {
+        // V62: TC SUPPORT'S EXACT API METHOD (CONVERT -> SELECT)
+        async function selectInModel(modId, guidStr, rId, btnElement) {
             let cleanGuid = guidStr ? guidStr.toString().replace("Tag:", "").replace("ID:", "").trim() : "";
             
-            // 1. Attempt API Selection
             try {
-                if (tcAPI) { 
-                    await tcAPI.viewer.setSelection([{ 
-                        modelId: modId, 
-                        objectRuntimeIds: [parseInt(rId, 10)] 
-                    }]);
+                if (tcAPI && cleanGuid) { 
+                    
+                    // 1. Send the 36-char GUID to TC to get the verified Runtime ID
+                    const runtimeIds = await tcAPI.viewer.convertToObjectRuntimeIds(modId, [cleanGuid]);
+                    
+                    // 2. Select using that exact ID
+                    if (runtimeIds && runtimeIds.length > 0) {
+                        await tcAPI.viewer.setSelection([{ 
+                            modelId: modId, 
+                            objectRuntimeIds: runtimeIds 
+                        }]);
+                    } else {
+                        // Fallback just in case conversion returns nothing
+                        await tcAPI.viewer.setSelection([{ 
+                            modelId: modId, 
+                            objectRuntimeIds: [parseInt(rId, 10)] 
+                        }]);
+                    }
                 }
             } catch(e) {
                 console.error("Selection API Error:", e);
             }
 
-            // 2. Guaranteed Clipboard Fallback
-            let searchTarget = cleanGuid || rId.toString();
-            navigator.clipboard.writeText(searchTarget).then(() => {
+            // Still copies to clipboard as a convenient fallback
+            navigator.clipboard.writeText(cleanGuid || rId.toString()).then(() => {
                 const originalText = btnElement.innerText;
-                btnElement.innerText = "COPIED!";
+                btnElement.innerText = "SELECTED!";
                 btnElement.classList.add("copied");
                 setTimeout(() => {
                     btnElement.innerText = originalText;
@@ -433,36 +452,21 @@
                     const rIds = sel.objectRuntimeIds || [sel.objectId];
                     const props = await tcAPI.viewer.getObjectProperties(sel.modelId, rIds);
                     
-                    // V61: FORCE TRIMBLE TO TRANSLATE THE ID INTO THE OFFICIAL GUID (MS) STRING
-                    let officialIds = [];
-                    try {
-                        if (tcAPI.viewer.convertToObjectIds) {
-                            officialIds = await tcAPI.viewer.convertToObjectIds(sel.modelId, rIds);
-                        }
-                    } catch(e) { console.warn("TC Object ID Conversion Skipped"); }
-                    
                     let coreObjs = [];
                     try {
                         coreObjs = await tcAPI.viewer.getObjects(sel.modelId, rIds);
                     } catch (e) {}
                     
-                    for (let i = 0; i < props.length; i++) {
-                        const obj = props[i];
-                        let eGuid = null, eType, eLayer, eProf, eLenStd, eLenSpan, eLenCut;
+                    for (const obj of props) {
+                        let eGuid, eType, eLayer, eProf, eLenStd, eLenSpan, eLenCut;
                         let hasConflict = false;
                         let conflictDetails = [];
 
-                        // 1. Try the exact translation from Trimble (This yields '6a76058c-5ae2-468a-83d5-4a6d7c02927b')
-                        if (officialIds && officialIds.length > i && officialIds[i]) {
-                            eGuid = officialIds[i];
-                        }
+                        const cObj = coreObjs && Array.isArray(coreObjs) ? coreObjs.find(c => c.id === obj.id) : null;
+                        let coreGuid = cObj ? cObj.externalId : null;
 
-                        // 2. Fallbacks if the API translation didn't work
-                        if (!eGuid || eGuid.toString().startsWith("ID:")) {
-                            const cObj = coreObjs && Array.isArray(coreObjs) ? coreObjs.find(c => c.id === obj.id) : null;
-                            let coreGuid = cObj ? cObj.externalId : null;
-                            eGuid = coreGuid || extractTrimbleGuid(obj);
-                        }
+                        // V62 uses the new extraction engine prioritized for 36-char GUIDs
+                        eGuid = extractTrimbleGuidMS(obj) || coreGuid;
                         
                         let sniffedFallbackGuid = null;
 
@@ -512,7 +516,6 @@
                             eLenCut = (rawC !== null && !isNaN(parseFloat(rawC))) ? Math.round(parseFloat(rawC)) : null;
                         }
 
-                        // Final ID Assignment
                         eGuid = eGuid || sniffedFallbackGuid || `ID:${obj.id}`;
 
                         let lenUsed = null;
@@ -640,7 +643,7 @@
                 else if (row.statusNote.includes("Alias")) tr.className = "row-alias";
                 else if (row.statusNote.includes("Baseplate") || row.statusNote.includes("Plate Calc")) tr.className = "row-plate";
                 
-                tr.innerHTML = `<td><button class="hl-btn" title="Try 3D Highlight & Copy ID">🎯</button></td>
+                tr.innerHTML = `<td><button class="hl-btn" title="Select Object in 3D Viewer">🎯</button></td>
                                 <td>${row.guid}</td><td>${row.type}</td><td>${row.layer}</td><td>${row.profile}</td>
                                 <td>${row.lenStd}</td><td>${row.lenSpan}</td><td>${row.lenCut}</td>
                                 <td class="col-used">${row.lenUsed}</td><td>${row.tn}</td><td>${row.statusNote}</td>`;
@@ -649,7 +652,7 @@
                 btn.addEventListener('click', (e) => { 
                     e.preventDefault();
                     e.stopPropagation();
-                    selectInModel(row.modelId, row.runtimeId, row.guid, btn); 
+                    selectInModel(row.modelId, row.guid, row.runtimeId, btn); 
                 });
 
                 tbody.appendChild(tr);
