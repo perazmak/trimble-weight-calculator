@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Steel Weight Calculator v72</title>
+    <title>Steel Weight Calculator v74</title>
     <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
     <style>
         body { font-family: sans-serif; padding: 12px; background-color: #f4f4f4; font-size: 13px; margin: 0; }
@@ -28,8 +28,15 @@
         .grid-3col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
         #userDefinedSettings { display: none; }
 
-        button { color: white; border: none; padding: 12px; border-radius: 4px; cursor: pointer; font-weight: bold; width: 100%; margin-bottom: 10px; }
-        #calcBtn { background-color: #005f9e; }
+        /* BUTTONS */
+        .btn-group { display: flex; gap: 10px; margin-bottom: 10px; }
+        button { color: white; border: none; padding: 12px; border-radius: 4px; cursor: pointer; font-weight: bold; width: 100%; }
+        #calcBtn { background-color: #005f9e; flex: 2; }
+        
+        /* PERMANENT DEBUG BUTTON */
+        #debugBtn { background-color: #dc3545; flex: 1; font-size: 11px; border: 1px solid #a71d2a; }
+        #debugBtn:hover { background-color: #c82333; }
+        
         #exportBtn { background-color: #28a745; display: none; margin-top: 10px; width: 100%; }
         
         #status { margin-top: 10px; padding: 8px; background: #fff; border-radius: 4px; border: 1px solid #ddd; font-size: 12px; min-height: 20px; font-weight: bold; color: #333; }
@@ -38,7 +45,7 @@
 
         #actionBar { display: none; background: #e2f0ff; border: 1px solid #b8daff; padding: 10px; border-radius: 4px; margin-top: 15px; margin-bottom: 10px; align-items: center; gap: 10px; flex-wrap: wrap; }
         #actionBar span { font-weight: bold; color: #004b7c; flex-grow: 1; }
-        .action-btn { background: #005f9e; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: bold; margin: 0; }
+        .action-btn { background: #005f9e; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: bold; margin: 0; width: auto; }
         .action-btn:hover { background: #004b7c; }
         .action-btn.clear-btn { background: #dc3545; }
         .action-btn.clear-btn:hover { background: #c82333; }
@@ -68,7 +75,7 @@
     </style>
 </head>
 <body>
-    <div class="version-tag">App Version: 72.0 (Smart Type Fallback)</div>
+    <div class="version-tag">App Version: 74.0 (Permanent Part Debugger)</div>
     <h3>Steel Weight Calc</h3>
     
     <label class="input-label">1. Load Tekla .lis file</label>
@@ -132,7 +139,11 @@
         </div>
     </div>
 
-    <button id="calcBtn" disabled>Calculate Weights v72</button>
+    <div class="btn-group">
+        <button id="calcBtn" disabled>Calculate Weights v74</button>
+        <button id="debugBtn">🛠️ UNIVERSAL DEBUGGER</button>
+    </div>
+    
     <div id="status">Please load a .lis file to begin.</div>
 
     <div id="totalBox">
@@ -195,10 +206,54 @@
         let sortDirection = {};
         let selectedRuntimeIds = new Set();
 
+        const bigIntReplacer = (key, value) => typeof value === 'bigint' ? value.toString() : value;
+
         TrimbleConnectWorkspace.connect(window.parent).then(api => {
             tcAPI = api;
             if (Object.keys(weightDatabase).length > 0) document.getElementById('calcBtn').disabled = false;
         }).catch(err => console.warn("TC API Notice:", err));
+
+        // --- PERMANENT UNIVERSAL DEBUGGER ---
+        document.getElementById('debugBtn').onclick = async function() {
+            try {
+                if (!tcAPI) return alert("API not ready.");
+                
+                const selection = await tcAPI.viewer.getSelection();
+                if (!selection || selection.length === 0) return alert("Please select a Part in the 3D viewer first.");
+                
+                const modId = selection[0].modelId;
+                const rIds = selection[0].objectRuntimeIds || [selection[0].objectId];
+                
+                document.getElementById('status').innerText = "Fetching Raw Part Data...";
+                
+                let props = "Failed";
+                let coreObjs = "Failed";
+                let officialIds = "Failed";
+                
+                try { props = await tcAPI.viewer.getObjectProperties(modId, rIds); } catch(e) { props = e.message; }
+                try { coreObjs = await tcAPI.viewer.getObjects(modId, rIds); } catch(e) { coreObjs = e.message; }
+                try { if (tcAPI.viewer.convertToObjectIds) officialIds = await tcAPI.viewer.convertToObjectIds(modId, rIds); } catch(e) { officialIds = e.message; }
+                
+                const debugPayload = {
+                    instructions: "Raw Part Level Data. Search this for 'QTO' to find the exact property path.",
+                    selected_part_runtime_ids: rIds,
+                    converted_official_ids: officialIds,
+                    raw_properties: props,
+                    raw_core_objects: coreObjs
+                };
+                
+                const blob = new Blob([JSON.stringify(debugPayload, bigIntReplacer, 2)], {type: "application/json"});
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement("a");
+                link.href = url;
+                link.download = `part_debug_${rIds[0]}.json`;
+                link.click();
+                
+                document.getElementById('status').innerText = "Debug file downloaded.";
+            } catch (err) {
+                alert("Debug Tool Error: " + err.message);
+            }
+        };
 
         document.querySelectorAll('input[name="calcMode"]').forEach(radio => {
             radio.addEventListener('change', function() {
@@ -286,13 +341,43 @@
                 for (let prop of innerProps) {
                     let propName = (prop.name || "").toString().toLowerCase().trim();
                     let propVal = prop.value ? prop.value.toString().trim() : "";
-                    
                     if ((propName.includes("guid") || propName === "globalid") && propVal.length === 22) {
                         return propVal;
                     }
                 }
             }
             return null;
+        }
+
+        function extractDeepQTO(obj) {
+            let qtoFound = null;
+            if (!obj) return null;
+
+            function search(o) {
+                if (qtoFound !== null) return; 
+                if (o === null || o === undefined) return;
+                
+                if (Array.isArray(o)) {
+                    for (let i = 0; i < o.length; i++) search(o[i]);
+                } else if (typeof o === 'object') {
+                    let n = (o.name || "").toString().toLowerCase().replace(/\s/g, '');
+                    if (n === "qto-category" || n === "qtocategory" || n === "qto") {
+                        if (o.value !== undefined && o.value.toString().trim() !== "") {
+                            qtoFound = o.value.toString().trim();
+                            return;
+                        }
+                    }
+                    for (let key in o) {
+                        if (key.toLowerCase().replace(/\s/g, '') === "qto-category" && typeof o[key] === 'string') {
+                            qtoFound = o[key].trim();
+                            return;
+                        }
+                        search(o[key]);
+                    }
+                }
+            }
+            search(obj);
+            return qtoFound;
         }
 
         function sniffProperties(obj) {
@@ -306,8 +391,7 @@
                 lenCuts: new Set(), 
                 fallbackGuids: new Set(), 
                 commonType: null, 
-                qtoCat: null,
-                productObjectType: null // NEW: Stores this temporarily for the smart check
+                productObjectType: null
             };
             
             function traverse(o, lastKey) {
@@ -317,9 +401,7 @@
                     let vTrim = o.toString().trim();
                     let n = (lastKey || "").toLowerCase();
 
-                    // V72 Explicit Property Traps
                     if (n === "common type") res.commonType = vTrim;
-                    if (n === "qto - category") res.qtoCat = vTrim;
                     if (n === "product object type" || n === "objecttype") res.productObjectType = vTrim;
 
                     if (n === "tag" || n === "type id" || n === "mark" || n === "cobie.component.name") {
@@ -338,7 +420,6 @@
                             res.genericProfs.add(o);
                         }
 
-                        // V72: Type Collection (Ignores exact fields we already trapped above to prevent pollution)
                         if (n.includes("type") && n !== "product object type" && n !== "objecttype" && n !== "common type") {
                             res.types.add(o);
                         }
@@ -439,24 +520,6 @@
                             eGuid = (cObj ? cObj.externalId : null) || extractTrimbleGuidIFC(obj);
                         }
 
-                        const getVal = (pset, prop) => {
-                            if(!pset || !prop) return null;
-                            if (pset.toUpperCase() === "ROOT") {
-                                const key = Object.keys(obj).find(k => k.toLowerCase() === prop.toLowerCase());
-                                return key ? obj[key] : null;
-                            }
-                            let s = Array.isArray(obj.properties) ? obj.properties.find(p => (p.name||"").toLowerCase() === pset.toLowerCase()) : obj.properties[pset];
-                            if (!s) return null;
-                            let inner = s.properties || s;
-                            if (Array.isArray(inner)) {
-                                let p = inner.find(x => (x.name||"").toLowerCase() === prop.toLowerCase());
-                                return p ? p.value : null;
-                            } else {
-                                const key = Object.keys(inner).find(k => k.toLowerCase() === prop.toLowerCase());
-                                return key ? inner[key] : null;
-                            }
-                        };
-
                         let sniffedFallbackGuid = null;
 
                         if (isAutoMode) {
@@ -465,15 +528,11 @@
                             let profSetToUse = sniffed.validProfs.size > 0 ? sniffed.validProfs : sniffed.genericProfs;
                             eProf = profSetToUse.size > 0 ? Array.from(profSetToUse)[0] : null;
 
-                            // V72: SMART TYPE FALLBACK LOGIC
                             eType = sniffed.commonType || (sniffed.types.size > 0 ? Array.from(sniffed.types)[0] : null);
 
                             if (!eType && sniffed.productObjectType) {
-                                // Clean both strings to compare their pure alphanumeric content
                                 let pTypeClean = sniffed.productObjectType.toString().toUpperCase().replace(/\s/g, "");
                                 let eProfClean = eProf ? eProf.toString().toUpperCase().replace(/\s/g, "") : "";
-                                
-                                // Only use product object type if it's NOT a duplicate of the profile size
                                 if (pTypeClean && pTypeClean !== eProfClean) {
                                     eType = sniffed.productObjectType;
                                 }
@@ -490,17 +549,32 @@
                             eLenSpan = sniffed.lenSpans.size > 0 ? Array.from(sniffed.lenSpans)[0] : null;
                             eLenCut = sniffed.lenCuts.size > 0 ? Math.min(...Array.from(sniffed.lenCuts)) : null;
                             
-                            eQtoCat = sniffed.qtoCat || getVal("QTO", "QTO - category") || "N/A";
-
                             if (sniffed.fallbackGuids.size > 0 && (!eGuid || eGuid.toString().startsWith("ID:"))) {
                                 sniffedFallbackGuid = `Tag:${Array.from(sniffed.fallbackGuids)[0]}`;
                             }
 
                         } else {
+                            const getVal = (pset, prop) => {
+                                if(!pset || !prop) return null;
+                                if (pset.toUpperCase() === "ROOT") {
+                                    const key = Object.keys(obj).find(k => k.toLowerCase() === prop.toLowerCase());
+                                    return key ? obj[key] : null;
+                                }
+                                let s = Array.isArray(obj.properties) ? obj.properties.find(p => (p.name||"").toLowerCase() === pset.toLowerCase()) : obj.properties[pset];
+                                if (!s) return null;
+                                let inner = s.properties || s;
+                                if (Array.isArray(inner)) {
+                                    let p = inner.find(x => (x.name||"").toLowerCase() === prop.toLowerCase());
+                                    return p ? p.value : null;
+                                } else {
+                                    const key = Object.keys(inner).find(k => k.toLowerCase() === prop.toLowerCase());
+                                    return key ? inner[key] : null;
+                                }
+                            };
+                            
                             eType = getVal(psType, prType);
                             eLayer = getVal(psLayer, prLayer);
                             eProf = getVal(psProf, prProf);
-                            eQtoCat = getVal("QTO", "QTO - category") || "N/A";
                             
                             let rawL = getVal(psLen, prLen);
                             let rawS = getVal(psSpan, prSpan);
@@ -510,6 +584,9 @@
                             eLenSpan = (rawS !== null && !isNaN(parseFloat(rawS))) ? Math.round(parseFloat(rawS)) : null;
                             eLenCut = (rawC !== null && !isNaN(parseFloat(rawC))) ? Math.round(parseFloat(rawC)) : null;
                         }
+
+                        // Always run the deep QTO sweeper
+                        eQtoCat = extractDeepQTO(obj) || "N/A";
 
                         eGuid = eGuid || sniffedFallbackGuid || `ID:${obj.id}`;
 
