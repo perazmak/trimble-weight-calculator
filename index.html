@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Steel Weight Calculator v69</title>
+    <title>Steel Weight Calculator v72</title>
     <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
     <style>
         body { font-family: sans-serif; padding: 12px; background-color: #f4f4f4; font-size: 13px; margin: 0; }
@@ -30,14 +30,20 @@
 
         button { color: white; border: none; padding: 12px; border-radius: 4px; cursor: pointer; font-weight: bold; width: 100%; margin-bottom: 10px; }
         #calcBtn { background-color: #005f9e; }
-        #debugBtn { background-color: #6c757d; display: none; }
         #exportBtn { background-color: #28a745; display: none; margin-top: 10px; width: 100%; }
         
         #status { margin-top: 10px; padding: 8px; background: #fff; border-radius: 4px; border: 1px solid #ddd; font-size: 12px; min-height: 20px; font-weight: bold; color: #333; }
         #totalBox { background-color: #333; color: white; padding: 12px; border-radius: 4px; margin-top: 10px; display: none; text-align: center; }
         #totalBox span { font-size: 20px; display: block; font-weight: bold; color: #00ccff; }
 
-        #resultsContainer { display: none; margin-top: 15px; }
+        #actionBar { display: none; background: #e2f0ff; border: 1px solid #b8daff; padding: 10px; border-radius: 4px; margin-top: 15px; margin-bottom: 10px; align-items: center; gap: 10px; flex-wrap: wrap; }
+        #actionBar span { font-weight: bold; color: #004b7c; flex-grow: 1; }
+        .action-btn { background: #005f9e; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: bold; margin: 0; }
+        .action-btn:hover { background: #004b7c; }
+        .action-btn.clear-btn { background: #dc3545; }
+        .action-btn.clear-btn:hover { background: #c82333; }
+
+        #resultsContainer { display: none; }
         .table-wrapper { max-height: 400px; overflow-y: auto; overflow-x: auto; border: 1px solid #ccc; background: #fff; }
         table { width: 100%; border-collapse: collapse; font-size: 10px; white-space: nowrap; }
         th, td { border: 1px solid #eee; padding: 6px; text-align: left; vertical-align: middle; }
@@ -48,20 +54,21 @@
         .filter-row { background-color: #eef4f9; }
         .col-filter { width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; box-sizing: border-box; font-size: 10px; }
         
+        tr { cursor: pointer; }
         tr:hover { background-color: #f9f9f9; }
+        tr.selected-row { background-color: #e2eef9; }
+        
         .row-err { color: #d8000c; font-weight: bold; }
         .row-warn { background-color: #fff8e1; color: #d35400; font-weight: bold; }
         .row-alias { color: #f39c12; font-style: italic; }
         .row-plate { color: #005f9e; font-style: italic; }
         .col-used { background-color: #f0f7ff; font-weight: bold; }
 
-        .hl-btn { background: #005f9e; color: white; border: none; padding: 6px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: bold; width: auto; margin: 0; transition: background 0.2s; white-space: nowrap; }
-        .hl-btn:hover { background: #00ccff; color: #000; }
-        .hl-btn.copied { background: #28a745; }
+        input[type="checkbox"] { cursor: pointer; transform: scale(1.2); }
     </style>
 </head>
 <body>
-    <div class="version-tag">App Version: 69.0 (Pure IT Support Sequence - 22 Char IFC)</div>
+    <div class="version-tag">App Version: 72.0 (Smart Type Fallback)</div>
     <h3>Steel Weight Calc</h3>
     
     <label class="input-label">1. Load Tekla .lis file</label>
@@ -125,7 +132,7 @@
         </div>
     </div>
 
-    <button id="calcBtn" disabled>Calculate Weights v69</button>
+    <button id="calcBtn" disabled>Calculate Weights v72</button>
     <div id="status">Please load a .lis file to begin.</div>
 
     <div id="totalBox">
@@ -133,20 +140,28 @@
         <span id="totalVal">0.0000 tn</span>
     </div>
 
+    <div id="actionBar">
+        <span id="cartCount">0 Items Selected</span>
+        <button class="action-btn" id="btnCopySpace">📋 Copy IDs (For TC Data Table Filter)</button>
+        <button class="action-btn clear-btn" id="btnClearCart">❌ Clear Selection</button>
+    </div>
+
     <div id="resultsContainer">
         <div class="table-wrapper">
             <table id="resultsTable">
                 <thead>
                     <tr>
-                        <th title="API Highlight via IT Support Sequence">Action</th>
-                        <th class="sort-header" onclick="sortTable('guid')">GUID (IFC) ↕</th>
+                        <th style="width: 30px; text-align: center;"><input type="checkbox" id="masterCheckbox" title="Select All Visible"></th>
+                        <th class="sort-header" onclick="sortTable('guid')">GUID / ID ↕</th>
                         <th class="sort-header" onclick="sortTable('type')">Type ↕</th>
+                        <th class="sort-header" onclick="sortTable('qtoCat')">QTO Cat ↕</th>
                         <th class="sort-header" onclick="sortTable('layer')">Layer ↕</th>
                         <th class="sort-header" onclick="sortTable('profile')">Profile ↕</th>
                         <th class="sort-header" onclick="sortTable('lenStd')">Length ↕</th>
                         <th class="sort-header" onclick="sortTable('lenSpan')">Span ↕</th>
                         <th class="sort-header" onclick="sortTable('lenCut')">Cut Len ↕</th>
                         <th class="sort-header" onclick="sortTable('lenUsed')">Used mm ↕</th>
+                        <th class="sort-header" onclick="sortTable('wtCat')">Wt Cat (kg/m) ↕</th>
                         <th class="sort-header" onclick="sortTable('tn')">Tn ↕</th>
                         <th class="sort-header" onclick="sortTable('statusNote')">Status ↕</th>
                     </tr>
@@ -154,12 +169,14 @@
                         <th></th>
                         <th><input type="text" class="col-filter" id="filtGuid" placeholder="Filter..." onkeyup="filterTable()"></th>
                         <th><input type="text" class="col-filter" id="filtType" placeholder="Filter..." onkeyup="filterTable()"></th>
+                        <th><input type="text" class="col-filter" id="filtQtoCat" placeholder="Filter..." onkeyup="filterTable()"></th>
                         <th><input type="text" class="col-filter" id="filtLayer" placeholder="Filter..." onkeyup="filterTable()"></th>
                         <th><input type="text" class="col-filter" id="filtProf" placeholder="Filter..." onkeyup="filterTable()"></th>
                         <th><input type="text" class="col-filter" id="filtLenStd" placeholder="..." onkeyup="filterTable()"></th>
                         <th><input type="text" class="col-filter" id="filtLenSpan" placeholder="..." onkeyup="filterTable()"></th>
                         <th><input type="text" class="col-filter" id="filtLenCut" placeholder="..." onkeyup="filterTable()"></th>
                         <th><input type="text" class="col-filter" id="filtLenUsed" placeholder="..." onkeyup="filterTable()"></th>
+                        <th><input type="text" class="col-filter" id="filtWtCat" placeholder="Filter..." onkeyup="filterTable()"></th>
                         <th><input type="text" class="col-filter" id="filtTn" placeholder="Filter..." onkeyup="filterTable()"></th>
                         <th><input type="text" class="col-filter" id="filtStat" placeholder="Filter..." onkeyup="filterTable()"></th>
                     </tr>
@@ -176,6 +193,7 @@
         let lastFullData = [];
         let filteredData = [];
         let sortDirection = {};
+        let selectedRuntimeIds = new Set();
 
         TrimbleConnectWorkspace.connect(window.parent).then(api => {
             tcAPI = api;
@@ -229,19 +247,37 @@
             }
         });
 
+        function getWtCat(kgm) {
+            if (!kgm || isNaN(kgm) || kgm <= 0) return "N/A";
+            if (kgm < 25) return "<25";
+            if (kgm >= 25 && kgm < 50) return "25-50";
+            if (kgm >= 50 && kgm < 100) return "50-100";
+            for (let i = 100; i < 2500; i += 100) {
+                if (kgm >= i && kgm < i + 100) return `${i}-${i+100}`;
+            }
+            return ">2500";
+        }
+
         function getManualWeight(profileStr, lengthMm, hasValidLength) {
             const regex3D = /(?:PL|PLT|FL|FLT)\s*(\d+(?:\.\d+)?)[x\*](\d+(?:\.\d+)?)[x\*](\d+(?:\.\d+)?)/i;
             const match3D = profileStr.match(regex3D);
-            if (match3D) return { weight: parseFloat(match3D[1]) * parseFloat(match3D[2]) * parseFloat(match3D[3]) * 0.00000000785, note: "Baseplate (3D String)", extLen: Math.round(Math.max(parseFloat(match3D[1]), parseFloat(match3D[2]), parseFloat(match3D[3]))) };
+            if (match3D) {
+                let d1 = parseFloat(match3D[1]), d2 = parseFloat(match3D[2]), d3 = parseFloat(match3D[3]);
+                let sorted = [d1, d2, d3].sort((a,b) => a-b);
+                let kgm = sorted[0] * sorted[1] * 0.00785; 
+                return { weight: d1 * d2 * d3 * 0.00000000785, note: "Baseplate (3D String)", extLen: Math.round(sorted[2]), kgm: kgm };
+            }
 
             const regex2D = /(?:FLT|PLT|PL|FL)\s*(\d+(?:\.\d+)?)[x\*](\d+(?:\.\d+)?)/i;
             const match2D = profileStr.match(regex2D);
-            if (match2D && hasValidLength) return { weight: parseFloat(match2D[1]) * parseFloat(match2D[2]) * lengthMm * 0.00000000785, note: "Plate Calc (2D)", extLen: lengthMm };
-            
+            if (match2D && hasValidLength) {
+                let d1 = parseFloat(match2D[1]), d2 = parseFloat(match2D[2]);
+                let kgm = d1 * d2 * 0.00785;
+                return { weight: d1 * d2 * lengthMm * 0.00000000785, note: "Plate Calc (2D)", extLen: lengthMm, kgm: kgm };
+            }
             return null;
         }
 
-        // V69: Pure 22-char IFC GUID Extraction
         function extractTrimbleGuidIFC(obj) {
             if (!obj || !obj.properties) return null;
             let propsArray = Array.isArray(obj.properties) ? obj.properties : Object.values(obj.properties);
@@ -251,7 +287,6 @@
                     let propName = (prop.name || "").toString().toLowerCase().trim();
                     let propVal = prop.value ? prop.value.toString().trim() : "";
                     
-                    // Target exactly the 22 character length common for IFC GUIDs
                     if ((propName.includes("guid") || propName === "globalid") && propVal.length === 22) {
                         return propVal;
                     }
@@ -261,16 +296,31 @@
         }
 
         function sniffProperties(obj) {
-            let res = { types: new Set(), layers: new Set(), validProfs: new Set(), genericProfs: new Set(), lenStds: new Set(), lenSpans: new Set(), lenCuts: new Set(), fallbackGuids: new Set() };
-            if (obj.type) res.types.add(obj.type);
-            if (obj.objectType) res.types.add(obj.objectType);
-
+            let res = { 
+                types: new Set(), 
+                layers: new Set(), 
+                validProfs: new Set(), 
+                genericProfs: new Set(), 
+                lenStds: new Set(), 
+                lenSpans: new Set(), 
+                lenCuts: new Set(), 
+                fallbackGuids: new Set(), 
+                commonType: null, 
+                qtoCat: null,
+                productObjectType: null // NEW: Stores this temporarily for the smart check
+            };
+            
             function traverse(o, lastKey) {
                 if (o === null || o === undefined) return;
                 if (typeof o === 'string' || typeof o === 'number') {
                     let vStr = o.toString().trim().toUpperCase();
                     let vTrim = o.toString().trim();
                     let n = (lastKey || "").toLowerCase();
+
+                    // V72 Explicit Property Traps
+                    if (n === "common type") res.commonType = vTrim;
+                    if (n === "qto - category") res.qtoCat = vTrim;
+                    if (n === "product object type" || n === "objecttype") res.productObjectType = vTrim;
 
                     if (n === "tag" || n === "type id" || n === "mark" || n === "cobie.component.name") {
                         if (vTrim.length > 0) res.fallbackGuids.add(vTrim);
@@ -288,7 +338,12 @@
                             res.genericProfs.add(o);
                         }
 
-                        if (n.includes("type") || n === "category") res.types.add(o);
+                        // V72: Type Collection (Ignores exact fields we already trapped above to prevent pollution)
+                        if (n.includes("type") && n !== "product object type" && n !== "objecttype" && n !== "common type") {
+                            res.types.add(o);
+                        }
+                        if (n === "category") res.types.add(o);
+
                         if (n.includes("layer")) res.layers.add(o);
                         
                         if (!n.includes("bolt") && !isNaN(parseFloat(vTrim))) {
@@ -320,43 +375,6 @@
             return res;
         }
 
-        // --- V69: EXACT IT SUPPORT SEQUENCE (22-char GUID -> RuntimeId -> setSelection) ---
-        async function selectInModelSequence(modId, guidStr, btnElement) {
-            let cleanGuid = guidStr ? guidStr.toString().replace("Tag:", "").replace("ID:", "").trim() : "";
-            
-            try {
-                // Execute only if we have the API and a valid 22-character GUID
-                if (tcAPI && cleanGuid && cleanGuid.length === 22) { 
-                    
-                    // Step 1: "Convert the guids into runtimeIds using viewer.convertToObjectRuntimeIds"
-                    const convertedRIds = await tcAPI.viewer.convertToObjectRuntimeIds(modId, [cleanGuid]);
-                    
-                    if (convertedRIds && convertedRIds.length > 0) {
-                        // Step 2: "pass it to viewer.setSelection API method, this will work"
-                        await tcAPI.viewer.setSelection([{ 
-                            modelId: modId, 
-                            objectRuntimeIds: convertedRIds 
-                        }]);
-                    } else {
-                        console.warn("API returned empty array for GUID:", cleanGuid);
-                    }
-                }
-            } catch(e) {
-                console.error("IT Support Sequence Error:", e);
-            }
-
-            // Always copy to clipboard as a backup visual indicator
-            navigator.clipboard.writeText(cleanGuid).then(() => {
-                const originalText = btnElement.innerText;
-                btnElement.innerText = "FIRED!";
-                btnElement.classList.add("copied");
-                setTimeout(() => {
-                    btnElement.innerText = originalText;
-                    btnElement.classList.remove("copied");
-                }, 1500);
-            }).catch(() => {});
-        }
-
         document.getElementById('calcBtn').onclick = async function() {
             const statusEl = document.getElementById('status');
             const totalValEl = document.getElementById('totalVal');
@@ -370,6 +388,8 @@
 
             lastFullData = [];
             filteredData = [];
+            selectedRuntimeIds.clear(); 
+            updateActionBar();
 
             const psType = document.getElementById('psetType').value.trim();
             const prType = document.getElementById('propType').value.trim();
@@ -399,13 +419,8 @@
                 for (const sel of selection) {
                     const rIds = sel.objectRuntimeIds || [sel.objectId];
                     
-                    // Fetch official IDs natively from Trimble to map to table if possible
                     let officialIds = [];
-                    try {
-                        if (tcAPI.viewer.convertToObjectIds) {
-                            officialIds = await tcAPI.viewer.convertToObjectIds(sel.modelId, rIds);
-                        }
-                    } catch(e) {}
+                    try { if (tcAPI.viewer.convertToObjectIds) officialIds = await tcAPI.viewer.convertToObjectIds(sel.modelId, rIds); } catch(e) {}
                     
                     const props = await tcAPI.viewer.getObjectProperties(sel.modelId, rIds);
                     let coreObjs = [];
@@ -413,21 +428,34 @@
                     
                     for (let i = 0; i < props.length; i++) {
                         const obj = props[i];
-                        let eGuid = null, eType, eLayer, eProf, eLenStd, eLenSpan, eLenCut;
+                        let eGuid = null, eType = null, eLayer, eProf, eLenStd, eLenSpan, eLenCut, eQtoCat = null;
                         let hasConflict = false;
                         let conflictDetails = [];
 
-                        // 1. Prioritize Official API ID, then property extraction, then Core ID
                         if (officialIds && officialIds.length > i && officialIds[i]) {
                             eGuid = officialIds[i];
                         } else {
-                            eGuid = extractTrimbleGuidIFC(obj);
+                            const cObj = coreObjs && Array.isArray(coreObjs) ? coreObjs.find(c => c.id === obj.id) : null;
+                            eGuid = (cObj ? cObj.externalId : null) || extractTrimbleGuidIFC(obj);
                         }
 
-                        if (!eGuid) {
-                            const cObj = coreObjs && Array.isArray(coreObjs) ? coreObjs.find(c => c.id === obj.id) : null;
-                            eGuid = cObj ? cObj.externalId : null;
-                        }
+                        const getVal = (pset, prop) => {
+                            if(!pset || !prop) return null;
+                            if (pset.toUpperCase() === "ROOT") {
+                                const key = Object.keys(obj).find(k => k.toLowerCase() === prop.toLowerCase());
+                                return key ? obj[key] : null;
+                            }
+                            let s = Array.isArray(obj.properties) ? obj.properties.find(p => (p.name||"").toLowerCase() === pset.toLowerCase()) : obj.properties[pset];
+                            if (!s) return null;
+                            let inner = s.properties || s;
+                            if (Array.isArray(inner)) {
+                                let p = inner.find(x => (x.name||"").toLowerCase() === prop.toLowerCase());
+                                return p ? p.value : null;
+                            } else {
+                                const key = Object.keys(inner).find(k => k.toLowerCase() === prop.toLowerCase());
+                                return key ? inner[key] : null;
+                            }
+                        };
 
                         let sniffedFallbackGuid = null;
 
@@ -437,36 +465,42 @@
                             let profSetToUse = sniffed.validProfs.size > 0 ? sniffed.validProfs : sniffed.genericProfs;
                             eProf = profSetToUse.size > 0 ? Array.from(profSetToUse)[0] : null;
 
+                            // V72: SMART TYPE FALLBACK LOGIC
+                            eType = sniffed.commonType || (sniffed.types.size > 0 ? Array.from(sniffed.types)[0] : null);
+
+                            if (!eType && sniffed.productObjectType) {
+                                // Clean both strings to compare their pure alphanumeric content
+                                let pTypeClean = sniffed.productObjectType.toString().toUpperCase().replace(/\s/g, "");
+                                let eProfClean = eProf ? eProf.toString().toUpperCase().replace(/\s/g, "") : "";
+                                
+                                // Only use product object type if it's NOT a duplicate of the profile size
+                                if (pTypeClean && pTypeClean !== eProfClean) {
+                                    eType = sniffed.productObjectType;
+                                }
+                            }
+
                             if (profSetToUse.size > 1) conflictDetails.push(`Prof: [${Array.from(profSetToUse).join(" vs ")}]`);
                             if (sniffed.lenStds.size > 1) conflictDetails.push(`Len: [${Array.from(sniffed.lenStds).join(" vs ")}]`);
                             if (sniffed.lenSpans.size > 1) conflictDetails.push(`Span: [${Array.from(sniffed.lenSpans).join(" vs ")}]`);
 
                             if (conflictDetails.length > 0) hasConflict = true;
 
-                            eType = sniffed.types.size > 0 ? Array.from(sniffed.types)[0] : null;
                             eLayer = sniffed.layers.size > 0 ? Array.from(sniffed.layers)[0] : null;
                             eLenStd = sniffed.lenStds.size > 0 ? Array.from(sniffed.lenStds)[0] : null;
                             eLenSpan = sniffed.lenSpans.size > 0 ? Array.from(sniffed.lenSpans)[0] : null;
                             eLenCut = sniffed.lenCuts.size > 0 ? Math.min(...Array.from(sniffed.lenCuts)) : null;
                             
+                            eQtoCat = sniffed.qtoCat || getVal("QTO", "QTO - category") || "N/A";
+
                             if (sniffed.fallbackGuids.size > 0 && (!eGuid || eGuid.toString().startsWith("ID:"))) {
                                 sniffedFallbackGuid = `Tag:${Array.from(sniffed.fallbackGuids)[0]}`;
                             }
 
                         } else {
-                            const getVal = (pset, prop) => {
-                                if(!pset || !prop) return null;
-                                if (pset.toUpperCase() === "ROOT") {
-                                    const key = Object.keys(obj).find(k => k.toLowerCase() === prop.toLowerCase());
-                                    return key ? obj[key] : null;
-                                }
-                                let s = Array.isArray(obj.properties) ? obj.properties.find(p => p.name === pset) : obj.properties[pset];
-                                return Array.isArray(s?.properties || s) ? (s.properties || s).find(p => p.name === prop)?.value : (s?.properties || s)?.[prop];
-                            };
-                            
                             eType = getVal(psType, prType);
                             eLayer = getVal(psLayer, prLayer);
                             eProf = getVal(psProf, prProf);
+                            eQtoCat = getVal("QTO", "QTO - category") || "N/A";
                             
                             let rawL = getVal(psLen, prLen);
                             let rawS = getVal(psSpan, prSpan);
@@ -488,7 +522,7 @@
                             }
                         }
 
-                        let note = "OK", tn = 0;
+                        let note = "OK", tn = 0, finalKgm = 0;
                         let hasValidLength = lenUsed !== null;
 
                         if (!eProf) {
@@ -508,6 +542,7 @@
                             }
                             
                             if (kgPerM) {
+                                finalKgm = kgPerM;
                                 if (hasValidLength) {
                                     tn = (lenUsed / 1000) * kgPerM / 1000;
                                 } else {
@@ -519,6 +554,7 @@
                                     tn = manualCalc.weight;
                                     note = manualCalc.note;
                                     lenUsed = manualCalc.extLen; 
+                                    finalKgm = manualCalc.kgm;
                                 } else {
                                     note = hasValidLength ? "ERR: Not in LIS" : "ERR: Not in LIS & Missing Length";
                                 }
@@ -530,15 +566,19 @@
                             note = (note === "OK") ? `WARN: ${conflictStr}` : `${note} (WARN: ${conflictStr})`;
                         }
 
+                        let wtCat = getWtCat(finalKgm);
+
                         lastFullData.push({
                             guid: eGuid,
                             type: eType || "N/A",
+                            qtoCat: eQtoCat,
                             layer: eLayer || "N/A",
                             profile: eProf || "N/A",
                             lenStd: eLenStd !== null ? eLenStd : "",
                             lenSpan: eLenSpan !== null ? eLenSpan : "",
                             lenCut: eLenCut !== null ? eLenCut : "",
                             lenUsed: lenUsed !== null ? lenUsed : "N/A",
+                            wtCat: wtCat,
                             tn: tn.toFixed(4),
                             statusNote: note,
                             modelId: sel.modelId,
@@ -564,24 +604,28 @@
         function filterTable() {
             const fGuid = document.getElementById('filtGuid').value.toLowerCase();
             const fType = document.getElementById('filtType').value.toLowerCase();
+            const fQto  = document.getElementById('filtQtoCat').value.toLowerCase();
             const fLayer = document.getElementById('filtLayer').value.toLowerCase();
             const fProf = document.getElementById('filtProf').value.toLowerCase();
             const fLen  = document.getElementById('filtLenStd').value.toLowerCase();
             const fSpan = document.getElementById('filtLenSpan').value.toLowerCase();
             const fCut  = document.getElementById('filtLenCut').value.toLowerCase();
             const fUsed = document.getElementById('filtLenUsed').value.toLowerCase();
+            const fWtC  = document.getElementById('filtWtCat').value.toLowerCase();
             const fTn   = document.getElementById('filtTn').value.toLowerCase();
             const fStat = document.getElementById('filtStat').value.toLowerCase();
 
             filteredData = lastFullData.filter(row => {
                 return row.guid.toString().toLowerCase().includes(fGuid) &&
                        row.type.toString().toLowerCase().includes(fType) &&
+                       row.qtoCat.toString().toLowerCase().includes(fQto) &&
                        row.layer.toString().toLowerCase().includes(fLayer) &&
                        row.profile.toString().toLowerCase().includes(fProf) &&
                        row.lenStd.toString().toLowerCase().includes(fLen) &&
                        row.lenSpan.toString().toLowerCase().includes(fSpan) &&
                        row.lenCut.toString().toLowerCase().includes(fCut) &&
                        row.lenUsed.toString().toLowerCase().includes(fUsed) &&
+                       row.wtCat.toString().toLowerCase().includes(fWtC) &&
                        row.tn.toString().toLowerCase().includes(fTn) &&
                        row.statusNote.toString().toLowerCase().includes(fStat);
             });
@@ -594,34 +638,100 @@
             document.getElementById('totalVal').innerText = total.toFixed(4) + " tn";
         }
 
+        function updateActionBar() {
+            const bar = document.getElementById('actionBar');
+            const countLabel = document.getElementById('cartCount');
+            const mCb = document.getElementById('masterCheckbox');
+            
+            if (selectedRuntimeIds.size > 0) {
+                bar.style.display = "flex";
+                countLabel.innerText = `${selectedRuntimeIds.size} Item(s) Selected`;
+            } else {
+                bar.style.display = "none";
+            }
+            
+            if (filteredData.length > 0 && filteredData.every(r => selectedRuntimeIds.has(r.runtimeId))) {
+                mCb.checked = true;
+            } else {
+                mCb.checked = false;
+            }
+        }
+
         function renderTable() {
             const tbody = document.querySelector("#resultsTable tbody");
             tbody.innerHTML = "";
             filteredData.forEach(row => {
+                const isSelected = selectedRuntimeIds.has(row.runtimeId);
+                
                 const tr = document.createElement("tr");
-                if (row.statusNote.includes("ERR")) tr.className = "row-err";
-                else if (row.statusNote.includes("WARN")) tr.className = "row-warn";
-                else if (row.statusNote.includes("Alias")) tr.className = "row-alias";
-                else if (row.statusNote.includes("Baseplate") || row.statusNote.includes("Plate Calc")) tr.className = "row-plate";
+                if (isSelected) tr.classList.add("selected-row");
                 
-                tr.innerHTML = `<td><button class="hl-btn" title="API Highlight via IT Support Sequence">🎯 Select Part</button></td>
-                                <td>${row.guid}</td><td>${row.type}</td><td>${row.layer}</td><td>${row.profile}</td>
+                if (row.statusNote.includes("ERR")) tr.classList.add("row-err");
+                else if (row.statusNote.includes("WARN")) tr.classList.add("row-warn");
+                else if (row.statusNote.includes("Alias")) tr.classList.add("row-alias");
+                else if (row.statusNote.includes("Baseplate") || row.statusNote.includes("Plate Calc")) tr.classList.add("row-plate");
+                
+                tr.innerHTML = `<td style="text-align: center;"><input type="checkbox" class="row-checkbox" ${isSelected ? 'checked' : ''}></td>
+                                <td>${row.guid}</td><td>${row.type}</td><td>${row.qtoCat}</td><td>${row.layer}</td><td>${row.profile}</td>
                                 <td>${row.lenStd}</td><td>${row.lenSpan}</td><td>${row.lenCut}</td>
-                                <td class="col-used">${row.lenUsed}</td><td>${row.tn}</td><td>${row.statusNote}</td>`;
+                                <td class="col-used">${row.lenUsed}</td><td>${row.wtCat}</td><td>${row.tn}</td><td>${row.statusNote}</td>`;
                 
-                const btn = tr.querySelector('.hl-btn');
-                btn.addEventListener('click', (e) => { 
-                    e.preventDefault();
-                    e.stopPropagation();
-                    // Executes the exact IT support sequence
-                    selectInModelSequence(row.modelId, row.guid, btn); 
+                tr.addEventListener('click', (e) => { 
+                    if (e.target.type !== 'checkbox') {
+                        const cb = tr.querySelector('.row-checkbox');
+                        cb.checked = !cb.checked;
+                    }
+                    if (tr.querySelector('.row-checkbox').checked) {
+                        selectedRuntimeIds.add(row.runtimeId);
+                        tr.classList.add("selected-row");
+                    } else {
+                        selectedRuntimeIds.delete(row.runtimeId);
+                        tr.classList.remove("selected-row");
+                    }
+                    updateActionBar();
                 });
 
                 tbody.appendChild(tr);
             });
             document.getElementById('resultsContainer').style.display = "block";
             document.getElementById('exportBtn').style.display = "block";
+            updateActionBar();
         }
+
+        document.getElementById('masterCheckbox').addEventListener('change', function(e) {
+            const isChecked = e.target.checked;
+            filteredData.forEach(r => {
+                if (isChecked) { selectedRuntimeIds.add(r.runtimeId); } 
+                else { selectedRuntimeIds.delete(r.runtimeId); }
+            });
+            renderTable();
+        });
+
+        document.getElementById('btnClearCart').addEventListener('click', () => {
+            selectedRuntimeIds.clear();
+            renderTable();
+        });
+
+        function getSelectedGuids() {
+            let guids = [];
+            lastFullData.forEach(r => {
+                if (selectedRuntimeIds.has(r.runtimeId)) {
+                    let clean = r.guid.toString().replace("Tag:", "").replace("ID:", "").trim();
+                    guids.push(clean);
+                }
+            });
+            return guids;
+        }
+
+        document.getElementById('btnCopySpace').addEventListener('click', (e) => {
+            const btn = e.target;
+            const str = getSelectedGuids().join(" "); 
+            navigator.clipboard.writeText(str).then(() => {
+                const orig = btn.innerText;
+                btn.innerText = "COPIED!";
+                setTimeout(() => btn.innerText = orig, 1500);
+            });
+        });
 
         function sortTable(column) {
             sortDirection[column] = !sortDirection[column];
@@ -640,15 +750,17 @@
         }
 
         document.getElementById('exportBtn').onclick = function() {
-            let csv = "data:text/csv;charset=utf-8,GUID,Type,Layer,Profile,Length,Span,Cut_Length,Used_mm,Weight_tn,Status\n";
+            let csv = "data:text/csv;charset=utf-8,GUID,Type,QTO_Cat,Layer,Profile,Length,Span,Cut_Length,Used_mm,Wt_Cat,Weight_tn,Status\n";
             filteredData.forEach(r => {
                 const safeGuid = r.guid.toString().replace(/,/g, "");
                 const safeType = r.type.toString().replace(/,/g, "");
+                const safeQto = r.qtoCat.toString().replace(/,/g, "");
                 const safeLayer = r.layer.toString().replace(/,/g, "");
                 const safeProf = r.profile.toString().replace(/,/g, "");
+                const safeWtC = r.wtCat.toString().replace(/,/g, "");
                 const safeStat = r.statusNote.toString().replace(/,/g, "");
                 
-                csv += `${safeGuid},${safeType},${safeLayer},${safeProf},${r.lenStd},${r.lenSpan},${r.lenCut},${r.lenUsed},${r.tn},${safeStat}\n`;
+                csv += `${safeGuid},${safeType},${safeQto},${safeLayer},${safeProf},${r.lenStd},${r.lenSpan},${r.lenCut},${r.lenUsed},${safeWtC},${r.tn},${safeStat}\n`;
             });
             const link = document.createElement("a");
             link.setAttribute("href", encodeURI(csv));
