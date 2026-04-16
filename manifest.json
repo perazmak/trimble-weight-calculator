@@ -1,7 +1,7 @@
 {
   "title": "Steel Weight Calculator",
   "icon": "https://img.icons8.com/color/48/000000/weight-kg.png",
-  "description": "v74: Permanent Universal Debugger added for Part-Level QTO extraction analysis.",
-  "url": "https://perazmak.github.io/trimble-weight-calculator/index.html?v=74",
+  "description": "v75: IFC Class Priority Extraction. Strips 'IFC' prefix for clean Type columns and blacklists Warning properties.",
+  "url": "https://perazmak.github.io/trimble-weight-calculator/index.html?v=75",
   "enabled": true
 }
