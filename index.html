@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Steel Weight Calculator v74</title>
+    <title>Steel Weight Calculator v75</title>
     <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
     <style>
         body { font-family: sans-serif; padding: 12px; background-color: #f4f4f4; font-size: 13px; margin: 0; }
@@ -32,8 +32,6 @@
         .btn-group { display: flex; gap: 10px; margin-bottom: 10px; }
         button { color: white; border: none; padding: 12px; border-radius: 4px; cursor: pointer; font-weight: bold; width: 100%; }
         #calcBtn { background-color: #005f9e; flex: 2; }
-        
-        /* PERMANENT DEBUG BUTTON */
         #debugBtn { background-color: #dc3545; flex: 1; font-size: 11px; border: 1px solid #a71d2a; }
         #debugBtn:hover { background-color: #c82333; }
         
@@ -75,7 +73,7 @@
     </style>
 </head>
 <body>
-    <div class="version-tag">App Version: 74.0 (Permanent Part Debugger)</div>
+    <div class="version-tag">App Version: 75.0 (IFC Class Extraction & Warning Blacklist)</div>
     <h3>Steel Weight Calc</h3>
     
     <label class="input-label">1. Load Tekla .lis file</label>
@@ -140,7 +138,7 @@
     </div>
 
     <div class="btn-group">
-        <button id="calcBtn" disabled>Calculate Weights v74</button>
+        <button id="calcBtn" disabled>Calculate Weights v75</button>
         <button id="debugBtn">🛠️ UNIVERSAL DEBUGGER</button>
     </div>
     
@@ -213,7 +211,6 @@
             if (Object.keys(weightDatabase).length > 0) document.getElementById('calcBtn').disabled = false;
         }).catch(err => console.warn("TC API Notice:", err));
 
-        // --- PERMANENT UNIVERSAL DEBUGGER ---
         document.getElementById('debugBtn').onclick = async function() {
             try {
                 if (!tcAPI) return alert("API not ready.");
@@ -235,7 +232,7 @@
                 try { if (tcAPI.viewer.convertToObjectIds) officialIds = await tcAPI.viewer.convertToObjectIds(modId, rIds); } catch(e) { officialIds = e.message; }
                 
                 const debugPayload = {
-                    instructions: "Raw Part Level Data. Search this for 'QTO' to find the exact property path.",
+                    instructions: "Raw Part Level Data.",
                     selected_part_runtime_ids: rIds,
                     converted_official_ids: officialIds,
                     raw_properties: props,
@@ -391,8 +388,14 @@
                 lenCuts: new Set(), 
                 fallbackGuids: new Set(), 
                 commonType: null, 
-                productObjectType: null
+                productObjectType: null,
+                ifcClass: null // V75: Explicit IFC Class Extractor
             };
+
+            // V75: Grab the root-level class property (e.g. "IFCBEAM") and strip the "IFC"
+            if (obj.class) {
+                res.ifcClass = obj.class.toString().replace(/^IFC/i, '').trim();
+            }
             
             function traverse(o, lastKey) {
                 if (o === null || o === undefined) return;
@@ -420,7 +423,8 @@
                             res.genericProfs.add(o);
                         }
 
-                        if (n.includes("type") && n !== "product object type" && n !== "objecttype" && n !== "common type") {
+                        // V75: Hard blacklist for "warning" to prevent "INVALID_IFCVALUE" from appearing
+                        if (n.includes("type") && n !== "product object type" && n !== "objecttype" && n !== "common type" && !n.includes("warning")) {
                             res.types.add(o);
                         }
                         if (n === "category") res.types.add(o);
@@ -528,7 +532,8 @@
                             let profSetToUse = sniffed.validProfs.size > 0 ? sniffed.validProfs : sniffed.genericProfs;
                             eProf = profSetToUse.size > 0 ? Array.from(profSetToUse)[0] : null;
 
-                            eType = sniffed.commonType || (sniffed.types.size > 0 ? Array.from(sniffed.types)[0] : null);
+                            // V75: Type Extraction Priority (1. IFC Class stripped -> 2. Common Type -> 3. General Type)
+                            eType = sniffed.ifcClass || sniffed.commonType || (sniffed.types.size > 0 ? Array.from(sniffed.types)[0] : null);
 
                             if (!eType && sniffed.productObjectType) {
                                 let pTypeClean = sniffed.productObjectType.toString().toUpperCase().replace(/\s/g, "");
@@ -585,7 +590,6 @@
                             eLenCut = (rawC !== null && !isNaN(parseFloat(rawC))) ? Math.round(parseFloat(rawC)) : null;
                         }
 
-                        // Always run the deep QTO sweeper
                         eQtoCat = extractDeepQTO(obj) || "N/A";
 
                         eGuid = eGuid || sniffedFallbackGuid || `ID:${obj.id}`;
